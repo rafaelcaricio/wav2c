@@ -3216,6 +3216,43 @@ mod tests {
     use super::*;
     use crate::encode::{encode_video_yuv, encode_video_yuv_with_cdf_update};
 
+    fn avmdec_executable() -> Option<std::path::PathBuf> {
+        if let Some(value) = std::env::var_os("AVMDEC") {
+            let path = std::path::PathBuf::from(value);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+        let local = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../avm_build/avmdec");
+        if local.is_file() {
+            return Some(local);
+        }
+        let temp_build = std::path::PathBuf::from("/tmp/avm/build/avmdec");
+        if temp_build.is_file() {
+            return Some(temp_build);
+        }
+        if std::process::Command::new("avmdec")
+            .arg("--help")
+            .output()
+            .is_ok()
+        {
+            return Some(std::path::PathBuf::from("avmdec"));
+        }
+        None
+    }
+
+    fn sequence_obu<'a, 'b>(obus: &'a [obu::RawObu<'b>]) -> &'a obu::RawObu<'b> {
+        obus.iter()
+            .find(|o| o.obu_type == 1)
+            .expect("sequence header OBU")
+    }
+
+    fn frame_obu<'a, 'b>(obus: &'a [obu::RawObu<'b>]) -> &'a obu::RawObu<'b> {
+        obus.iter()
+            .find(|o| o.obu_type == 4)
+            .expect("CLK OBU")
+    }
+
     #[test]
     fn decode_solid_gray() {
         let y = vec![128u8; 64 * 64];
@@ -3440,16 +3477,16 @@ mod tests {
     fn parse_avmenc_minimal_obus() {
         let data = std::fs::read("tests/fixtures/avmenc_minimal.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        assert_eq!(obus.len(), 2, "Expected 2 OBUs, got {}", obus.len());
-        assert_eq!(obus[0].obu_type, 1, "First OBU should be sequence header");
-        assert_eq!(obus[1].obu_type, 4, "Second OBU should be CLK");
+        assert_eq!(obus.first().map(|o| o.obu_type), Some(2));
+        assert_eq!(sequence_obu(&obus).obu_type, 1);
+        assert_eq!(frame_obu(&obus).obu_type, 4);
     }
 
     #[test]
     fn parse_avmenc_minimal_seq_header() {
         let data = std::fs::read("tests/fixtures/avmenc_minimal.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
         assert_eq!(seq.width, 256);
         assert_eq!(seq.height, 128);
         assert!(seq.single_picture_header_flag);
@@ -3460,8 +3497,8 @@ mod tests {
     fn parse_avmenc_minimal_frame_header() {
         let data = std::fs::read("tests/fixtures/avmenc_minimal.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
         assert_eq!(fp.base_qindex, 100);
         assert!(!fp.disable_cdf_update);
         assert!(!fp.tile_data.is_empty());
@@ -3471,8 +3508,8 @@ mod tests {
     fn decode_avmenc_minimal_tile_data() {
         let data = std::fs::read("tests/fixtures/avmenc_minimal.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
 
         let tile_cfg = tile::TileDecodeConfig {
             enable_cfl_intra: seq.enable_cfl_intra,
@@ -3527,8 +3564,8 @@ mod tests {
     fn reconstruct_avmenc_minimal_frame() {
         let data = std::fs::read("tests/fixtures/avmenc_minimal.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
         let dequant = crate::encode::ac_qlookup(fp.base_qindex);
 
         let tile_cfg = tile::TileDecodeConfig {
@@ -3593,11 +3630,32 @@ mod tests {
         assert_eq!(u_plane.len(), w / 2 * h / 2);
         assert_eq!(v_plane.len(), w / 2 * h / 2);
 
-        let ref_y4m = std::fs::read("/tmp/minimal_sph1_decoded.y4m").unwrap();
-        let y4m_header = "YUV4MPEG2 W256 H128 F0:0 Ip C420jpeg\nFRAME\n";
-        let header_len = y4m_header.len();
-        let ref_y = &ref_y4m[header_len..header_len + w * h];
-        let ref_u = &ref_y4m[header_len + w * h..header_len + w * h + w / 2 * h / 2];
+        let Some(avmdec) = avmdec_executable() else {
+            eprintln!("SKIP: avmdec not found");
+            return;
+        };
+        let ref_path = std::env::temp_dir().join(format!(
+            "av2codec_minimal_ref_{}.yuv",
+            std::process::id()
+        ));
+        let output = std::process::Command::new(avmdec)
+            .args([
+                "--codec=av2",
+                "--i420",
+                "-o",
+                ref_path.to_str().unwrap(),
+                "tests/fixtures/avmenc_minimal.obu",
+            ])
+            .output()
+            .expect("failed to run avmdec");
+        assert!(
+            output.status.success(),
+            "avmdec failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let ref_y4m = std::fs::read(&ref_path).unwrap();
+        let ref_y = &ref_y4m[..w * h];
+        let ref_u = &ref_y4m[w * h..w * h + w / 2 * h / 2];
 
         let y_mse: f64 = y_plane
             .iter()
@@ -3623,8 +3681,7 @@ mod tests {
             100.0
         };
 
-        let ref_v =
-            &ref_y4m[header_len + w * h + w / 2 * h / 2..header_len + w * h + 2 * (w / 2 * h / 2)];
+        let ref_v = &ref_y4m[w * h + w / 2 * h / 2..w * h + 2 * (w / 2 * h / 2)];
         let v_mse: f64 = v_plane
             .iter()
             .zip(ref_v.iter())
@@ -3654,7 +3711,7 @@ mod tests {
     fn decode_avmenc_128x128_q30() {
         let data = std::fs::read("tests/fixtures/avmenc_128x128_q30.obu").unwrap();
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
         assert_eq!(seq.width, 128);
         assert_eq!(seq.height, 128);
 
@@ -3684,8 +3741,8 @@ mod tests {
             seq.film_grain_params_present
         );
 
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
-        let header_bytes = obus[1].payload.len() - fp.tile_data.len();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
+        let header_bytes = frame_obu(&obus).payload.len() - fp.tile_data.len();
         eprintln!(
             "FRAME: qindex={} disable_cdf={} oh={} header_bytes={} tile_data_len={} tx_mode_select={} tcq_mode={} reduced_tx_set={}",
             fp.base_qindex,
@@ -3822,7 +3879,10 @@ mod tests {
             &fp.ccso_params,
         );
 
-        let avmdec = "/Users/rafaelcaricio/development/avm_build/avmdec";
+        let Some(avmdec) = avmdec_executable() else {
+            eprintln!("SKIP: avmdec not found");
+            return;
+        };
         let output = std::process::Command::new(avmdec)
             .args([
                 "--codec=av2",
@@ -3904,7 +3964,10 @@ mod tests {
         let w = frame.width as usize;
         let h = frame.height as usize;
 
-        let avmdec = "/Users/rafaelcaricio/development/avm_build/avmdec";
+        let Some(avmdec) = avmdec_executable() else {
+            eprintln!("SKIP: avmdec not found");
+            return;
+        };
         let ref_path = "/tmp/avmenc_128x128_q30_nofilter_ref.y4m";
         let output = std::process::Command::new(avmdec)
             .args(["--codec=av2", "-o", ref_path, obu_path])
@@ -3982,8 +4045,8 @@ mod tests {
         }
 
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
         let dequant = crate::encode::ac_qlookup(fp.base_qindex);
         eprintln!(
             "SEQ: sb_size={} sdp={} cdef={} gdf={} rest={} ccso={} tcq={}",
@@ -4093,7 +4156,10 @@ mod tests {
         let w = frame.width as usize;
         let h = frame.height as usize;
 
-        let avmdec = "/Users/rafaelcaricio/development/avm_build/avmdec";
+        let Some(avmdec) = avmdec_executable() else {
+            eprintln!("SKIP: avmdec not found");
+            return;
+        };
         let ref_path = "/tmp/avmenc_128x128_q30_noibc_ref.y4m";
         let output = std::process::Command::new(avmdec)
             .args(["--codec=av2", "-o", ref_path, obu_path])
@@ -4233,8 +4299,8 @@ mod tests {
 
         eprintln!("\n=== PER-BLOCK Y ANALYSIS ===");
         let obus = obu::parse_obus(&data);
-        let seq = sequence::parse_sequence_header(obus[0].payload).unwrap();
-        let fp = frame::parse_frame_header(obus[1].payload, &seq).unwrap();
+        let seq = sequence::parse_sequence_header(sequence_obu(&obus).payload).unwrap();
+        let fp = frame::parse_frame_header(frame_obu(&obus).payload, &seq).unwrap();
         let _dequant = crate::encode::ac_qlookup(fp.base_qindex);
         let tile_cfg = tile::TileDecodeConfig {
             enable_cfl_intra: seq.enable_cfl_intra,

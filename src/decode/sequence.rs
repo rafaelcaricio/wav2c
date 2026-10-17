@@ -651,7 +651,11 @@ mod tests {
     fn avmenc_nofilter_fixture_enables_ibp() {
         let data = std::fs::read("tests/fixtures/avmenc_128x128_q30_nofilter.obu").unwrap();
         let obus = crate::decode::obu::parse_obus(&data);
-        let params = parse_sequence_header(obus[0].payload).unwrap();
+        let sequence_header = obus
+            .iter()
+            .find(|o| o.obu_type == 1)
+            .expect("sequence header OBU");
+        let params = parse_sequence_header(sequence_header.payload).unwrap();
         assert!(params.enable_ibp);
     }
 }

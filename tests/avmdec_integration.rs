@@ -1,28 +1,8 @@
 use std::fs;
 use std::process::Command;
 
-fn avmdec_available() -> bool {
-    Command::new("../avm_build/avmdec")
-        .arg("--help")
-        .output()
-        .is_ok()
-}
-
-fn decode_with_avmdec(obu_path: &str, out_path: &str) -> Vec<u8> {
-    let output = Command::new("../avm_build/avmdec")
-        .args(["--i420", "-o", out_path, obu_path])
-        .output()
-        .expect("avmdec not found");
-
-    eprintln!("avmdec stderr: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(
-        output.status.success(),
-        "avmdec failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    fs::read(out_path).unwrap()
-}
+mod common;
+use common::{avmdec_available, decode_with_avmdec};
 
 fn psnr(original: &[u8], decoded: &[u8]) -> f64 {
     assert_eq!(original.len(), decoded.len());
