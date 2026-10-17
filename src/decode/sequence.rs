@@ -15,6 +15,7 @@ pub struct SequenceParams {
     pub enable_ibp: bool,
     pub enable_mrls: bool,
     pub enable_intra_dip: bool,
+    pub enable_intra_edge_filter: bool,
     pub order_hint_bits: u32,
     pub number_of_bits_for_lt_frame_id: u32,
     pub force_screen_content_tools: u32,
@@ -177,7 +178,7 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
     }
 
     let enable_intra_dip = r.read_bit();
-    let _intra_edge_filter = r.read_bit();
+    let enable_intra_edge_filter = r.read_bit();
     let enable_mrls = r.read_bit();
     let enable_cfl_intra = r.read_bit();
     let cfl_ds_filter_index = if !monochrome {
@@ -233,6 +234,7 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
         enable_mhccp,
         enable_ibp,
         enable_mrls,
+        enable_intra_edge_filter,
         enable_intra_dip,
         order_hint_bits,
         number_of_bits_for_lt_frame_id,

@@ -161,6 +161,7 @@ impl Decoder {
                         seq.cfl_ds_filter_index,
                         seq.sb_size as usize,
                         seq.enable_ibp,
+                        !seq.enable_intra_edge_filter,
                         &fp.ccso_params,
                     )
                 }))
@@ -1847,6 +1848,7 @@ fn reconstruct_partitioned_frame(
     cfl_ds_filter_index: u8,
     sb_size: usize,
     enable_ibp: bool,
+    disable_edge_filter: bool,
     ccso_params: &frame::CcsoParams,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let w = width as usize;
@@ -2059,6 +2061,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: false,
                             above_filter_type: 0,
                             left_filter_type: 0,
+                            disable_edge_filter,
                         },
                         Some(&y_ready),
                     );
@@ -2139,6 +2142,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: true,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&u_ready),
                     );
@@ -2159,6 +2163,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: true,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&v_ready),
                     );
@@ -2247,6 +2252,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: true,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&u_ready),
                     );
@@ -2267,6 +2273,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: true,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&v_ready),
                     );
@@ -2425,6 +2432,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: false,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&u_ready),
                     );
@@ -2445,6 +2453,7 @@ fn reconstruct_partitioned_frame(
                             is_cfl: false,
                             above_filter_type: uv_above_filter_type,
                             left_filter_type: uv_left_filter_type,
+                            disable_edge_filter,
                         },
                         Some(&v_ready),
                     );
@@ -2655,6 +2664,7 @@ fn reconstruct_partitioned_frame(
                                 is_cfl: false,
                                 above_filter_type: uv_above_filter_type,
                                 left_filter_type: uv_left_filter_type,
+                                disable_edge_filter,
                             },
                             Some(&u_ready),
                         );
@@ -2738,6 +2748,7 @@ fn reconstruct_partitioned_frame(
                                 is_cfl: false,
                                 above_filter_type: uv_above_filter_type,
                                 left_filter_type: uv_left_filter_type,
+                                disable_edge_filter,
                             },
                             Some(&v_ready),
                         );
@@ -3572,6 +3583,7 @@ mod tests {
             seq.cfl_ds_filter_index,
             seq.sb_size as usize,
             seq.enable_ibp,
+            !seq.enable_intra_edge_filter,
             &fp.ccso_params,
         );
 
@@ -3806,6 +3818,7 @@ mod tests {
             seq.cfl_ds_filter_index,
             seq.sb_size as usize,
             seq.enable_ibp,
+            !seq.enable_intra_edge_filter,
             &fp.ccso_params,
         );
 

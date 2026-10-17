@@ -1266,6 +1266,7 @@ fn lossless_block_residual(
                     is_cfl: false,
                     above_filter_type: 0,
                     left_filter_type: 0,
+                    disable_edge_filter: true,
                 },
                 Some(ready),
             );

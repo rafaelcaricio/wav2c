@@ -272,6 +272,7 @@ pub struct IntraPredictControl {
     pub is_cfl: bool,
     pub above_filter_type: usize,
     pub left_filter_type: usize,
+    pub disable_edge_filter: bool,
 }
 
 struct PreparedRefs {
@@ -387,6 +388,7 @@ pub fn predict_intra_with_control_and_availability(
             apply_ibp_blend,
             control.above_filter_type,
             control.left_filter_type,
+            control.disable_edge_filter,
             control.plane == 0 && mrl_index == 0,
             availability,
         );
@@ -451,6 +453,7 @@ fn predict_directional(
     apply_ibp_blend: bool,
     above_filter_type: usize,
     left_filter_type: usize,
+    disable_edge_filter: bool,
     use_idif: bool,
     availability: Option<&[bool]>,
 ) -> Vec<u8> {
@@ -472,15 +475,17 @@ fn predict_directional(
             apply_ibp_refs,
             availability,
         );
-        apply_directional_edge_filter(
-            &mut refs,
-            w,
-            h,
-            p_angle,
-            apply_ibp_refs,
-            above_filter_type,
-            left_filter_type,
-        );
+        if !disable_edge_filter {
+            apply_directional_edge_filter(
+                &mut refs,
+                w,
+                h,
+                p_angle,
+                apply_ibp_refs,
+                above_filter_type,
+                left_filter_type,
+            );
+        }
         let mut pred = if use_idif {
             let refs_idif = expand_directional_idif_refs(&refs.above, &refs.left, refs.top_left);
             if p_angle > 0 && p_angle < 90 {
@@ -2118,6 +2123,7 @@ mod tests {
                 is_cfl: false,
                 above_filter_type: 0,
                 left_filter_type: 0,
+                disable_edge_filter: false,
             },
         );
 
@@ -2153,6 +2159,7 @@ mod tests {
                 is_cfl: true,
                 above_filter_type: 0,
                 left_filter_type: 0,
+                disable_edge_filter: false,
             },
         );
 
@@ -2188,6 +2195,7 @@ mod tests {
                 is_cfl: false,
                 above_filter_type: 0,
                 left_filter_type: 0,
+                disable_edge_filter: false,
             },
         );
         let odd_delta = predict_intra_with_control(
@@ -2207,6 +2215,7 @@ mod tests {
                 is_cfl: false,
                 above_filter_type: 0,
                 left_filter_type: 0,
+                disable_edge_filter: false,
             },
         );
 

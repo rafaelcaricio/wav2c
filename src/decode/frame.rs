@@ -946,6 +946,7 @@ mod tests {
             enable_ibp: false,
             enable_mrls: false,
             enable_intra_dip: false,
+            enable_intra_edge_filter: false,
             order_hint_bits: 6,
             number_of_bits_for_lt_frame_id: 3,
             force_screen_content_tools: 0,
