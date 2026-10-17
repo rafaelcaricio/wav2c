@@ -95,7 +95,9 @@ impl Encoder {
             height: self.padded_height,
         };
         let seq_payload = write_sequence_header(&seq_config);
-        ObuWriter::pack_obu(ObuType::SequenceHeader, &seq_payload)
+        let mut headers = ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]);
+        headers.extend_from_slice(&ObuWriter::pack_obu(ObuType::SequenceHeader, &seq_payload));
+        headers
     }
 
     pub fn send_frame(&mut self, y: &[u8], u: &[u8], v: &[u8]) -> Result<(), EncodeError> {
@@ -159,11 +161,16 @@ impl Encoder {
             },
             true,
         );
+        let mut packet_data = Vec::new();
+        if self.order_hint > 0 {
+            packet_data.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
+        }
+        packet_data.extend_from_slice(&clk_obu);
 
         let frame_number = self.order_hint as u64;
         self.order_hint += 1;
         self.pending_packet = Some(Packet {
-            data: clk_obu,
+            data: packet_data,
             frame_number,
         });
 
@@ -999,118 +1006,6 @@ fn predict_dr_z3(refs: &RefPixels, bw: usize, bh: usize, angle: u16, use_idif: b
     pred
 }
 
-fn edge_filter_strength(bs0: usize, bs1: usize, delta: i32, filter_type: usize) -> usize {
-    let d = delta.abs();
-    let blk_wh = bs0 + bs1;
-    let mut strength = 0;
-    if filter_type == 0 {
-        if blk_wh <= 8 {
-            if d >= 56 { strength = 1; }
-        } else if blk_wh <= 12 {
-            if d >= 40 { strength = 1; }
-        } else if blk_wh <= 16 {
-            if d >= 40 { strength = 1; }
-        } else if blk_wh <= 24 {
-            if d >= 8 { strength = 1; }
-            if d >= 16 { strength = 2; }
-            if d >= 32 { strength = 3; }
-        } else if blk_wh <= 32 {
-            if d >= 1 { strength = 1; }
-            if d >= 4 { strength = 2; }
-            if d >= 32 { strength = 3; }
-        } else if d >= 1 {
-            strength = 3;
-        }
-    } else {
-        if blk_wh <= 8 {
-            if d >= 40 { strength = 1; }
-            if d >= 64 { strength = 2; }
-        } else if blk_wh <= 16 {
-            if d >= 20 { strength = 1; }
-            if d >= 48 { strength = 2; }
-        } else if blk_wh <= 24 {
-            if d >= 4 { strength = 3; }
-        } else if d >= 1 {
-            strength = 3;
-        }
-    }
-    strength
-}
-
-fn filter_intra_edge(edge: &mut [u8], strength: usize) {
-    if strength == 0 {
-        return;
-    }
-    const KERNELS: [[u32; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
-    let kernel = KERNELS[strength - 1];
-    let src = edge.to_vec();
-    for i in 1..edge.len() {
-        let mut sum = 0u32;
-        for (j, coeff) in kernel.iter().enumerate() {
-            let idx = ((i as isize) - 2 + j as isize).clamp(0, edge.len() as isize - 1) as usize;
-            sum += src[idx] as u32 * coeff;
-        }
-        edge[i] = ((sum + 8) >> 4) as u8;
-    }
-}
-
-fn apply_edge_filter_for_directional(refs: &mut RefPixels, bsize: usize, p_angle: u16) {
-    if p_angle == 90 || p_angle == 180 {
-        return;
-    }
-    let w = bsize;
-    let h = bsize;
-    let (need_above, need_left) = if (p_angle as i32) < 90 {
-        (true, false)
-    } else if (p_angle as i32) < 180 {
-        (true, true)
-    } else {
-        (false, true)
-    };
-
-    let need_right = (p_angle as i32) < 90;
-    let need_bottom = (p_angle as i32) > 180;
-
-    if need_above && need_left && w + h >= 24 && !refs.above.is_empty() && !refs.left.is_empty() {
-        refs.top_left =
-            ((refs.left[0] as u32 * 5 + refs.top_left as u32 * 6 + refs.above[0] as u32 * 5 + 8)
-                >> 4) as u8;
-    }
-
-    let angle_above = p_angle as i32 - 90;
-    let angle_left = p_angle as i32 - 180;
-
-    if need_above && refs.has_above {
-        let strength = edge_filter_strength(w, h, angle_above, 0);
-        let n_top_px = w;
-        let len = n_top_px + 1 + if need_right { h } else { 0 };
-        let limit = len.min(refs.above_ext.len() + 1);
-        let mut edge = Vec::with_capacity(limit);
-        edge.push(refs.top_left);
-        let copy_len = (limit - 1).min(refs.above_ext.len());
-        edge.extend_from_slice(&refs.above_ext[..copy_len]);
-        filter_intra_edge(&mut edge, strength);
-        refs.top_left = edge[0];
-        refs.above[..w.min(copy_len)].copy_from_slice(&edge[1..1 + w.min(copy_len)]);
-        refs.above_ext[..copy_len].copy_from_slice(&edge[1..]);
-    }
-
-    if need_left && refs.has_left {
-        let strength = edge_filter_strength(h, w, angle_left, 0);
-        let n_left_px = h;
-        let len = n_left_px + 1 + if need_bottom { w } else { 0 };
-        let limit = len.min(refs.left_ext.len() + 1);
-        let mut edge = Vec::with_capacity(limit);
-        edge.push(refs.top_left);
-        let copy_len = (limit - 1).min(refs.left_ext.len());
-        edge.extend_from_slice(&refs.left_ext[..copy_len]);
-        filter_intra_edge(&mut edge, strength);
-        refs.top_left = edge[0];
-        refs.left[..h.min(copy_len)].copy_from_slice(&edge[1..1 + h.min(copy_len)]);
-        refs.left_ext[..copy_len].copy_from_slice(&edge[1..]);
-    }
-}
-
 fn predict_directional(refs: &RefPixels, bsize: usize, mode: IntraMode, is_luma: bool) -> Vec<u8> {
     let angle = mode.nominal_angle();
     if angle == 90 {
@@ -1119,24 +1014,12 @@ fn predict_directional(refs: &RefPixels, bsize: usize, mode: IntraMode, is_luma:
     if angle == 180 {
         return predict_h_block(refs, bsize);
     }
-    let mut filtered_refs = RefPixels {
-        above: refs.above.clone(),
-        left: refs.left.clone(),
-        top_left: refs.top_left,
-        above_right: refs.above_right,
-        below_left: refs.below_left,
-        has_above: refs.has_above,
-        has_left: refs.has_left,
-        above_ext: refs.above_ext.clone(),
-        left_ext: refs.left_ext.clone(),
-    };
-    apply_edge_filter_for_directional(&mut filtered_refs, bsize, angle);
     if angle > 0 && angle < 90 {
-        predict_dr_z1(&filtered_refs, bsize, bsize, angle, is_luma)
+        predict_dr_z1(refs, bsize, bsize, angle, is_luma)
     } else if angle > 90 && angle < 180 {
-        predict_dr_z2(&filtered_refs, bsize, bsize, angle, is_luma)
+        predict_dr_z2(refs, bsize, bsize, angle, is_luma)
     } else {
-        predict_dr_z3(&filtered_refs, bsize, bsize, angle, is_luma)
+        predict_dr_z3(refs, bsize, bsize, angle, is_luma)
     }
 }
 
@@ -1339,7 +1222,7 @@ fn encode_uv_subblock(
             dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], 0, dequant);
         }
         let inv_residual = dct::inverse_dct2_16x16(&dqcoeffs);
-        reconstruct_block(recon_uv, uv_w, ux, uy, 16, &pred, &inv_residual.to_vec());
+        reconstruct_block(recon_uv, uv_w, ux, uy, 16, &pred, &inv_residual);
         (levels, eob, Vec::new())
     } else if uv_bsize == 8 {
         let mut residual_arr = [0i32; 64];
@@ -1360,7 +1243,7 @@ fn encode_uv_subblock(
             dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], 0, dequant);
         }
         let inv_residual = dct::inverse_dct2_8x8(&dqcoeffs);
-        reconstruct_block(recon_uv, uv_w, ux, uy, 8, &pred, &inv_residual.to_vec());
+        reconstruct_block(recon_uv, uv_w, ux, uy, 8, &pred, &inv_residual);
         (levels, eob, Vec::new())
     } else if uv_bsize == 4 {
         let pred = predict_block_plane(&refs, 4, mode, false);
@@ -1383,7 +1266,7 @@ fn encode_uv_subblock(
             dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], 0, dequant);
         }
         let inv_residual = dct::inverse_dct2_4x4(&dqcoeffs);
-        reconstruct_block(recon_uv, uv_w, ux, uy, 4, &pred, &inv_residual.to_vec());
+        reconstruct_block(recon_uv, uv_w, ux, uy, 4, &pred, &inv_residual);
         (levels, eob, Vec::new())
     } else {
         panic!("unsupported UV block size: {}", uv_bsize);
@@ -1485,7 +1368,7 @@ fn encode_block_var(
             dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], 0, dequant);
         }
         let inv_residual = dct::inverse_dct2_16x16(&dqcoeffs);
-        reconstruct_block(recon, plane_w, x, y, 16, &pred_block, &inv_residual.to_vec());
+        reconstruct_block(recon, plane_w, x, y, 16, &pred_block, &inv_residual);
         EncodedBlock {
             x, y, bsize, mode, levels, eob,
             log_scale: 0,
@@ -1511,7 +1394,7 @@ fn encode_block_var(
             dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], 0, dequant);
         }
         let inv_residual = dct::inverse_dct2_8x8(&dqcoeffs);
-        reconstruct_block(recon, plane_w, x, y, 8, &pred_block, &inv_residual.to_vec());
+        reconstruct_block(recon, plane_w, x, y, 8, &pred_block, &inv_residual);
         EncodedBlock {
             x, y, bsize, mode, levels, eob,
             log_scale: 0,
@@ -1757,10 +1640,14 @@ pub fn encode_video(width: u32, height: u32, base_qindex: u8, y_planes: &[Vec<u8
         height: ph,
     };
     let seq_payload = write_sequence_header(&seq_config);
+    output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
     let seq_obu = ObuWriter::pack_obu(ObuType::SequenceHeader, &seq_payload);
     output.extend_from_slice(&seq_obu);
 
     for (i, _y_plane) in y_planes.iter().enumerate() {
+        if i > 0 {
+            output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
+        }
         let tile_data = tile::encode_tile_data();
         let frame_config = FrameHeaderConfig {
             width: pw,
@@ -1793,12 +1680,16 @@ pub fn encode_video_yuv(
         height: ph,
     };
     let seq_payload = write_sequence_header(&seq_config);
+    output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
     let seq_obu = ObuWriter::pack_obu(ObuType::SequenceHeader, &seq_payload);
     output.extend_from_slice(&seq_obu);
 
     let dequant = ac_qlookup(base_qindex);
 
     for (i, (y_plane, u_plane, v_plane)) in frames.iter().enumerate() {
+        if i > 0 {
+            output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
+        }
         let padded_y = pad_plane(y_plane, width, height, pw, ph);
         let padded_u = pad_plane(u_plane, width / 2, height / 2, pw / 2, ph / 2);
         let padded_v = pad_plane(v_plane, width / 2, height / 2, pw / 2, ph / 2);
@@ -1838,12 +1729,16 @@ pub fn encode_video_yuv_with_cdf_update(
         height: ph,
     };
     let seq_payload = write_sequence_header(&seq_config);
+    output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
     let seq_obu = ObuWriter::pack_obu(ObuType::SequenceHeader, &seq_payload);
     output.extend_from_slice(&seq_obu);
 
     let dequant = ac_qlookup(base_qindex);
 
     for (i, (y_plane, u_plane, v_plane)) in frames.iter().enumerate() {
+        if i > 0 {
+            output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
+        }
         let padded_y = pad_plane(y_plane, width, height, pw, ph);
         let padded_u = pad_plane(u_plane, width / 2, height / 2, pw / 2, ph / 2);
         let padded_v = pad_plane(v_plane, width / 2, height / 2, pw / 2, ph / 2);
@@ -1964,6 +1859,13 @@ pub fn reconstruct_block(
 mod tests {
     use super::*;
 
+    fn obu_types(bitstream: &[u8]) -> Vec<u8> {
+        crate::decode::obu::parse_obus(bitstream)
+            .iter()
+            .map(|obu| obu.obu_type)
+            .collect()
+    }
+
     fn quantize_dc(residual: i32, log_scale: u32, dequant: i32) -> i32 {
         let dc_coeff = 128i64 * residual as i64;
         quantize_coeff(dc_coeff, log_scale, dequant)
@@ -1973,22 +1875,18 @@ mod tests {
     fn bitstream_starts_with_seq_header_obu() {
         let bs = encode_still_image(64, 64, 50);
         assert!(bs.len() > 13);
-        let obu_type = (bs[1] >> 2) & 0x1F;
-        assert_eq!(obu_type, 1, "first OBU should be SequenceHeader");
+        assert_eq!(
+            obu_types(&bs),
+            vec![2, 1, 4],
+            "stream should be TD, SequenceHeader, CLK"
+        );
     }
 
     #[test]
     fn bitstream_contains_two_obus() {
         let bs = encode_still_image(64, 64, 50);
-        let seq_content_size = bs[0] as usize;
-        let second_obu_start = 1 + seq_content_size;
-        let remaining = &bs[second_obu_start..];
-        assert!(
-            !remaining.is_empty(),
-            "should have CLK OBU after seq header"
-        );
-        let clk_type = (remaining[1] >> 2) & 0x1F;
-        assert_eq!(clk_type, 4, "second OBU should be CLK");
+        let types = obu_types(&bs);
+        assert_eq!(types.last(), Some(&4), "should end with a CLK OBU");
     }
 
     #[test]
@@ -2014,17 +1912,9 @@ mod tests {
     fn encode_video_has_correct_obu_count() {
         let frames: Vec<Vec<u8>> = (0..5).map(|_| vec![128; 64 * 64]).collect();
         let bs = encode_video(64, 64, 50, &frames);
-        let seq_content_size = bs[0] as usize;
-        let mut pos = 1 + seq_content_size;
-        let mut clk_count = 0;
-        while pos < bs.len() {
-            let obu_size = bs[pos] as usize;
-            let obu_type = (bs[pos + 1] >> 2) & 0x1F;
-            assert_eq!(obu_type, 4, "expected CLK OBU");
-            clk_count += 1;
-            pos += 1 + obu_size;
-        }
-        assert_eq!(clk_count, 5);
+        let types = obu_types(&bs);
+        assert_eq!(types.iter().filter(|&&t| t == 4).count(), 5);
+        assert_eq!(types.iter().filter(|&&t| t == 2).count(), 5);
     }
 
     #[test]
@@ -2169,8 +2059,11 @@ mod tests {
         let enc = Encoder::new(64, 64, 50).unwrap();
         let headers = enc.headers();
         assert!(!headers.is_empty());
-        let obu_type = (headers[1] >> 2) & 0x1F;
-        assert_eq!(obu_type, 1, "headers should be a SequenceHeader OBU");
+        assert_eq!(
+            obu_types(&headers),
+            vec![2, 1],
+            "headers should be TD followed by SequenceHeader"
+        );
     }
 
     #[test]

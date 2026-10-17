@@ -61,12 +61,6 @@ impl<'a> DaalaDecoder<'a> {
         }
     }
 
-    pub fn trace_state(&self, label: &str) {
-        eprintln!(
-            "[TRACE] {} rng=0x{:04x} dif=0x{:016x} cnt={}",
-            label, self.rng, self.dif, self.cnt
-        );
-    }
 
     pub fn decode_bool(&mut self, f: u16) -> bool {
         debug_assert!(f > 0 && f < 32768);

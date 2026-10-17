@@ -13,7 +13,7 @@ pub enum ObuType {
     MetadataShort = 8,
     MetadataGroup = 9,
     Switch = 10,
-    Padding = 24,
+    Padding = 25,
 }
 
 pub struct ObuWriter;

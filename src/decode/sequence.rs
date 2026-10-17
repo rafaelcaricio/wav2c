@@ -188,10 +188,6 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
     };
     let enable_mhccp = r.read_bit();
     let enable_ibp = r.read_bit();
-    eprintln!(
-        "[SEQ_INTRA] enable_intra_dip={} enable_mrls={}",
-        enable_intra_dip, enable_mrls
-    );
 
     let (
         order_hint_bits,
@@ -460,10 +456,6 @@ fn parse_tq_group(r: &mut BitReader, sph: bool, monochrome: bool) -> TqGroupPara
 
     let enable_cctx = if !monochrome { r.read_bit() } else { false };
 
-    eprintln!(
-        "[SEQ_TQ] enable_fsc={} enable_idtx_intra={} enable_ist={} reduced_tx_part_set={} enable_cctx={}",
-        enable_fsc, enable_idtx_intra, enable_ist, reduced_tx_part_set, enable_cctx
-    );
 
     let tcq_bit = r.read_bit();
     let mut enable_tcq = 0u32;
