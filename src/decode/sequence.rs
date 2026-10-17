@@ -1,7 +1,7 @@
 use super::DecodeError;
 use super::bitreader::BitReader;
 
-const SEQ_LEVEL_4_0: u32 = 8;
+const SEQ_LEVEL_TIER_THRESHOLD: u32 = 3;
 
 pub struct SequenceParams {
     pub width: u32,
@@ -72,65 +72,53 @@ fn read_quniform(r: &mut BitReader, n: u32) -> u32 {
 pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeError> {
     let mut r = BitReader::new(payload);
 
-    eprintln!(
-        "[SEQ_RAW] payload first 8 bytes: {:02x?}",
-        &payload[..payload.len().min(8)]
-    );
     let _seq_header_id = r.read_uvlc();
-    eprintln!(
-        "[SEQ_BITS] after seq_header_id={}: bit_pos={}",
-        _seq_header_id,
-        r.total_bits_read()
-    );
     let profile = r.read_literal(5);
     if profile != 0 {
         return Err(DecodeError::UnsupportedProfile);
     }
 
     let sph = r.read_bit();
-    eprintln!(
-        "[SEQ_BITS] after sph={}: bit_pos={}",
-        sph,
-        r.total_bits_read()
-    );
+    let level = r.read_literal(5);
+    if level > SEQ_LEVEL_TIER_THRESHOLD && !sph {
+        let _seq_tier = r.read_bit();
+    }
+
+    let chroma_format = r.read_uvlc();
+    let monochrome = chroma_format == 1;
+    let _bitdepth_idx = r.read_uvlc();
+
     if !sph {
         let _seq_lcr_id = r.read_literal(3);
         let _still_picture = r.read_bit();
-        eprintln!(
-            "[SEQ_BITS] after lcr_id={} still_pic={}: bit_pos={}",
-            _seq_lcr_id,
-            _still_picture,
-            r.total_bits_read()
-        );
-    }
-
-    let level = r.read_literal(5);
-    eprintln!(
-        "[SEQ_BITS] after level={}: bit_pos={}",
-        level,
-        r.total_bits_read()
-    );
-    if level >= SEQ_LEVEL_4_0 && !sph {
-        let _seq_tier = r.read_bit();
-        eprintln!(
-            "[SEQ_BITS] after tier={}: bit_pos={}",
-            _seq_tier,
-            r.total_bits_read()
-        );
+        let max_tlayer = r.read_literal(2);
+        let max_mlayer = r.read_literal(3);
+        if max_mlayer > 0 {
+            let n = ceil_log2(max_mlayer + 1);
+            let _mlayer_cnt = r.read_literal(n as u8);
+        }
+        let _monotonic_output_order_flag = r.read_bit();
+        if max_mlayer > 0 {
+            let mlayer_dep = r.read_bit();
+            if mlayer_dep {
+                parse_mlayer_dependency(&mut r, max_mlayer);
+            }
+        }
+        if max_tlayer > 0 {
+            let tlayer_dep = r.read_bit();
+            if tlayer_dep {
+                if max_mlayer > 0 {
+                    let _multi_map = r.read_bit();
+                }
+                parse_tlayer_dependency(&mut r, max_tlayer);
+            }
+        }
     }
 
     let num_bits_width = r.read_literal(4) + 1;
     let num_bits_height = r.read_literal(4) + 1;
     let width = r.read_literal(num_bits_width as u8) + 1;
     let height = r.read_literal(num_bits_height as u8) + 1;
-    eprintln!(
-        "[SEQ_BITS] after dims {}x{} (nbw={} nbh={}): bit_pos={}",
-        width,
-        height,
-        num_bits_width,
-        num_bits_height,
-        r.total_bits_read()
-    );
 
     let conf_win = r.read_bit();
     if conf_win {
@@ -139,21 +127,6 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
         let _top = r.read_uvlc();
         let _bottom = r.read_uvlc();
     }
-    eprintln!(
-        "[SEQ_BITS] after conf_win={}: bit_pos={}",
-        conf_win,
-        r.total_bits_read()
-    );
-
-    let chroma_format = r.read_uvlc();
-    let monochrome = chroma_format == 1;
-    let _bitdepth_idx = r.read_uvlc();
-    eprintln!(
-        "[SEQ_BITS] after chroma={} bitdepth_idx={}: bit_pos={}",
-        chroma_format,
-        _bitdepth_idx,
-        r.total_bits_read()
-    );
 
     if !sph {
         let display_model = r.read_bit();
@@ -170,46 +143,8 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
                 let _low_delay = r.read_bit();
             }
         }
-        eprintln!(
-            "[SEQ_BITS] after display/decoder model (disp={} dec={}): bit_pos={}",
-            display_model,
-            decoder_model,
-            r.total_bits_read()
-        );
-        let max_tlayer = r.read_literal(2);
-        let max_mlayer = r.read_literal(3);
-        eprintln!(
-            "[SEQ_BITS] after tlayer={} mlayer={}: bit_pos={}",
-            max_tlayer,
-            max_mlayer,
-            r.total_bits_read()
-        );
-        if max_mlayer > 0 {
-            let n = ceil_log2(max_mlayer + 1);
-            let _mlayer_cnt = r.read_literal(n as u8);
-        }
-        if max_mlayer > 0 {
-            let mlayer_dep = r.read_bit();
-            if mlayer_dep {
-                parse_mlayer_dependency(&mut r, max_mlayer);
-            }
-        }
-        if max_tlayer > 0 {
-            let tlayer_dep = r.read_bit();
-            if tlayer_dep {
-                if max_mlayer > 0 {
-                    let _multi_map = r.read_bit();
-                }
-                parse_tlayer_dependency(&mut r, max_tlayer);
-            }
-        }
-        eprintln!(
-            "[SEQ_BITS] after temporal/multi-layer: bit_pos={}",
-            r.total_bits_read()
-        );
     }
 
-    eprintln!("[SEQ_BITS] before sb_size: bit_pos={}", r.total_bits_read());
     let sb_size = if r.read_bit() {
         256
     } else if r.read_bit() {
@@ -217,11 +152,6 @@ pub fn parse_sequence_header(payload: &[u8]) -> Result<SequenceParams, DecodeErr
     } else {
         64
     };
-    eprintln!(
-        "[SEQ_BITS] after sb_size={}: bit_pos={}",
-        sb_size,
-        r.total_bits_read()
-    );
 
     let enable_sdp = if !monochrome { r.read_bit() } else { false };
     if enable_sdp && !sph {
@@ -400,7 +330,7 @@ fn parse_inter_group(r: &mut BitReader, sph: bool) -> (u32, u32, bool, bool, boo
             let _reduced_ref_frame_mvs = r.read_bit();
         }
 
-        order_hint_bits = r.read_literal(3) + 1;
+        order_hint_bits = r.read_literal(4) + 1;
     }
 
     let enable_refmvbank = r.read_bit();

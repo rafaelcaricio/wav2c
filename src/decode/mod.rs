@@ -93,17 +93,15 @@ impl Decoder {
             return Err(DecodeError::InvalidObu);
         }
 
-        let seq = sequence::parse_sequence_header(obus[0].payload)?;
+        let seq_header_index = obus
+            .iter()
+            .position(|obu| obu.obu_type == 1)
+            .ok_or(DecodeError::InvalidObu)?;
+        let seq = sequence::parse_sequence_header(obus[seq_header_index].payload)?;
         let mut frames = Vec::new();
         let mut frame_number = 0u64;
 
-        let sb_aligned = seq.sb_size == 64
-            && seq.width % 64 == 0
-            && seq.height % 64 == 0
-            && seq.width > 0
-            && seq.height > 0;
-
-        for raw_obu in &obus[1..] {
+        for raw_obu in &obus[seq_header_index + 1..] {
             if raw_obu.obu_type != 4 {
                 continue;
             }
@@ -112,9 +110,6 @@ impl Decoder {
             let uv_dequant = crate::encode::ac_qlookup(
                 (fp.base_qindex as i32 + fp.u_ac_delta_q).clamp(0, 255) as u8,
             );
-            let sb_cols = (seq.width / 64) as usize;
-            let sb_rows = (seq.height / 64) as usize;
-
             let tile_cfg = tile::TileDecodeConfig {
                 enable_cfl_intra: seq.enable_cfl_intra,
                 enable_mhccp: seq.enable_mhccp,
@@ -124,6 +119,7 @@ impl Decoder {
                 enable_ist: seq.enable_ist,
                 enable_cctx: seq.enable_cctx,
                 tx_mode_select: fp.tx_mode_select,
+                coded_lossless: fp.base_qindex == 0,
                 reduced_tx_set_used: fp.reduced_tx_set_used,
                 reduced_tx_part_set: seq.reduced_tx_part_set,
                 allow_intrabc: fp.allow_intrabc,
@@ -145,59 +141,7 @@ impl Decoder {
             };
 
             let (y_plane, u_plane, v_plane) = if !fp.tile_data.is_empty() {
-                let use_partitioned =
-                    !sb_aligned || fp.tx_mode_select || seq.enable_sdp || seq.enable_ibp;
-                if !use_partitioned {
-                    let flat_sb_result =
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let decoded_sbs = tile::decode_tile_data_multi_sb(
-                                fp.tile_data,
-                                sb_cols,
-                                sb_rows,
-                                !fp.disable_cdf_update,
-                                fp.base_qindex,
-                            );
-                            reconstruct_frame(
-                                &decoded_sbs,
-                                sb_cols,
-                                sb_rows,
-                                seq.width,
-                                seq.height,
-                                dequant,
-                            )
-                        }));
-                    match flat_sb_result {
-                        Ok(planes) => planes,
-                        Err(_) => {
-                            let partitioned_result =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    let blocks = tile::decode_tile_data_partitioned_cfg(
-                                        fp.tile_data,
-                                        seq.width as usize,
-                                        seq.height as usize,
-                                        seq.sb_size as usize,
-                                        fp.base_qindex,
-                                        &tile_cfg,
-                                    );
-                                    reconstruct_partitioned_frame(
-                                        &blocks,
-                                        seq.width,
-                                        seq.height,
-                                        dequant,
-                                        uv_dequant,
-                                        fp.tcq_mode,
-                                        seq.cfl_ds_filter_index,
-                                        seq.sb_size as usize,
-                                        seq.enable_ibp,
-                                        &fp.ccso_params,
-                                    )
-                                }));
-                            partitioned_result.unwrap_or_else(|_e| {
-                                gray_frame(seq.width, seq.height)
-                            })
-                        }
-                    }
-                } else {
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let blocks = tile::decode_tile_data_partitioned_cfg(
                         fp.tile_data,
                         seq.width as usize,
@@ -213,12 +157,15 @@ impl Decoder {
                         dequant,
                         uv_dequant,
                         fp.tcq_mode,
+                        fp.base_qindex == 0,
                         seq.cfl_ds_filter_index,
                         seq.sb_size as usize,
                         seq.enable_ibp,
                         &fp.ccso_params,
                     )
-                }
+                }))
+                .map_err(|_| DecodeError::UnsupportedFeature("tile syntax"))?;
+                decoded
             } else {
                 gray_frame(seq.width, seq.height)
             };
@@ -1852,6 +1799,7 @@ fn reconstruct_partitioned_frame(
     dequant: i32,
     uv_dequant: i32,
     tcq_mode: bool,
+    coded_lossless: bool,
     cfl_ds_filter_index: u8,
     sb_size: usize,
     enable_ibp: bool,
@@ -1985,9 +1933,13 @@ fn reconstruct_partitioned_frame(
                         let tu_h = tu.tx_size.height();
                         let tx = bx + tu.col_offset;
                         let ty = by + tu.row_offset;
-                        let residuals = transform::dequantize_and_inverse_tcq(
-                            &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
-                        );
+                        let residuals = if coded_lossless {
+                            transform::lossless_residual(&tu.levels, tu.eob)
+                        } else {
+                            transform::dequantize_and_inverse_tcq(
+                                &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                            )
+                        };
                         reconstruct_tu(
                             &mut y_plane,
                             w,
@@ -2017,9 +1969,13 @@ fn reconstruct_partitioned_frame(
                     let tu_h = tu.tx_size.height();
                     let tx = bx + tu.col_offset;
                     let ty = by + tu.row_offset;
-                    let residuals = transform::dequantize_and_inverse_tcq(
-                        &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
-                    );
+                    let residuals = if coded_lossless {
+                        transform::lossless_residual(&tu.levels, tu.eob)
+                    } else {
+                        transform::dequantize_and_inverse_tcq(
+                            &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                        )
+                    };
                     reconstruct_tu(
                         &mut y_plane,
                         w,
@@ -2062,9 +2018,13 @@ fn reconstruct_partitioned_frame(
                         },
                         Some(&y_ready),
                     );
-                    let residuals = transform::dequantize_and_inverse_tcq(
-                        &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
-                    );
+                    let residuals = if coded_lossless {
+                        transform::lossless_residual(&tu.levels, tu.eob)
+                    } else {
+                        transform::dequantize_and_inverse_tcq(
+                            &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                        )
+                    };
                     reconstruct_tu(
                         &mut y_plane,
                         w,
@@ -3184,80 +3144,6 @@ fn gray_frame(width: u32, height: u32) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     )
 }
 
-fn reconstruct_frame(
-    sbs: &[tile::DecodedSbCoeffs],
-    sb_cols: usize,
-    sb_rows: usize,
-    width: u32,
-    height: u32,
-    dequant: i32,
-) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let w = width as usize;
-    let h = height as usize;
-    let uv_w = w / 2;
-    let uv_h = h / 2;
-    let mut y_plane = vec![0u8; w * h];
-    let mut u_plane = vec![0u8; uv_w * uv_h];
-    let mut v_plane = vec![0u8; uv_w * uv_h];
-
-    for sb_row in 0..sb_rows {
-        for sb_col in 0..sb_cols {
-            let sb = &sbs[sb_row * sb_cols + sb_col];
-
-            let y_x = sb_col * 64;
-            let y_y = sb_row * 64;
-            let y_mode = crate::encode::IntraMode::from_av2(sb.y_mode);
-            let y_pred_block =
-                crate::encode::predict_intra_block(&y_plane, w, y_x, y_y, 64, y_mode);
-            let y_residuals =
-                transform::dequantize_and_inverse(&sb.y_levels, sb.y_eob, dequant, 2, true);
-            crate::encode::reconstruct_block(
-                &mut y_plane,
-                w,
-                y_x,
-                y_y,
-                64,
-                &y_pred_block,
-                &y_residuals,
-            );
-
-            let uv_x = sb_col * 32;
-            let uv_y = sb_row * 32;
-            let uv_mode = crate::encode::IntraMode::from_av2(sb.uv_mode);
-            let u_pred_block =
-                crate::encode::predict_intra_block_uv(&u_plane, uv_w, uv_x, uv_y, 32, uv_mode);
-            let u_residuals =
-                transform::dequantize_and_inverse(&sb.u_levels, sb.u_eob, dequant, 1, false);
-            crate::encode::reconstruct_block(
-                &mut u_plane,
-                uv_w,
-                uv_x,
-                uv_y,
-                32,
-                &u_pred_block,
-                &u_residuals,
-            );
-
-            let v_pred_block =
-                crate::encode::predict_intra_block_uv(&v_plane, uv_w, uv_x, uv_y, 32, uv_mode);
-            let v_residuals =
-                transform::dequantize_and_inverse(&sb.v_levels, sb.v_eob, dequant, 1, false);
-            crate::encode::reconstruct_block(
-                &mut v_plane,
-                uv_w,
-                uv_x,
-                uv_y,
-                32,
-                &v_pred_block,
-                &v_residuals,
-            );
-        }
-    }
-
-    (y_plane, u_plane, v_plane)
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3529,6 +3415,7 @@ mod tests {
             enable_ist: seq.enable_ist,
             enable_cctx: seq.enable_cctx,
             tx_mode_select: fp.tx_mode_select,
+            coded_lossless: fp.base_qindex == 0,
             reduced_tx_set_used: fp.reduced_tx_set_used,
             reduced_tx_part_set: seq.reduced_tx_part_set,
             allow_intrabc: fp.allow_intrabc,
@@ -3585,6 +3472,7 @@ mod tests {
             enable_ist: seq.enable_ist,
             enable_cctx: seq.enable_cctx,
             tx_mode_select: fp.tx_mode_select,
+            coded_lossless: fp.base_qindex == 0,
             reduced_tx_set_used: fp.reduced_tx_set_used,
             reduced_tx_part_set: seq.reduced_tx_part_set,
             allow_intrabc: fp.allow_intrabc,
@@ -3624,6 +3512,7 @@ mod tests {
             dequant,
             uv_dequant,
             fp.tcq_mode,
+            fp.base_qindex == 0,
             seq.cfl_ds_filter_index,
             seq.sb_size as usize,
             seq.enable_ibp,
@@ -3755,6 +3644,7 @@ mod tests {
             enable_ist: seq.enable_ist,
             enable_cctx: seq.enable_cctx,
             tx_mode_select: fp.tx_mode_select,
+            coded_lossless: fp.base_qindex == 0,
             reduced_tx_set_used: fp.reduced_tx_set_used,
             reduced_tx_part_set: seq.reduced_tx_part_set,
             allow_intrabc: fp.allow_intrabc,
@@ -3856,6 +3746,7 @@ mod tests {
             dequant,
             uv_dequant_128,
             fp.tcq_mode,
+            fp.base_qindex == 0,
             seq.cfl_ds_filter_index,
             seq.sb_size as usize,
             seq.enable_ibp,
@@ -4048,6 +3939,7 @@ mod tests {
             enable_ist: seq.enable_ist,
             enable_cctx: seq.enable_cctx,
             tx_mode_select: fp.tx_mode_select,
+            coded_lossless: fp.base_qindex == 0,
             reduced_tx_set_used: fp.reduced_tx_set_used,
             reduced_tx_part_set: seq.reduced_tx_part_set,
             allow_intrabc: fp.allow_intrabc,
@@ -4283,6 +4175,7 @@ mod tests {
             enable_ist: seq.enable_ist,
             enable_cctx: seq.enable_cctx,
             tx_mode_select: fp.tx_mode_select,
+            coded_lossless: fp.base_qindex == 0,
             reduced_tx_set_used: fp.reduced_tx_set_used,
             reduced_tx_part_set: seq.reduced_tx_part_set,
             allow_intrabc: fp.allow_intrabc,

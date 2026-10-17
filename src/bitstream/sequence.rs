@@ -2,7 +2,7 @@ use super::writer::BitWriter;
 
 const PROFILE_BITS: u8 = 5;
 const LEVEL_BITS: u8 = 5;
-const SEQ_LEVEL_4_0: u32 = 8;
+const SEQ_LEVEL_TIER_THRESHOLD: u32 = 3;
 const DELTA_DCQUANT_BITS: u8 = 5;
 const DELTA_DCQUANT_MAX: i32 = 1 << (DELTA_DCQUANT_BITS - 2);
 const DELTA_DCQUANT_MIN: i32 = DELTA_DCQUANT_MAX - (1 << DELTA_DCQUANT_BITS) + 1;
@@ -18,13 +18,21 @@ pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
     w.write_uvlc(0);
     w.write_literal(0, PROFILE_BITS);
     w.write_bit(false);
-    w.write_literal(0, 3);
-    w.write_bit(false);
+
     let level = compute_level(config.width, config.height);
     w.write_literal(level, LEVEL_BITS);
-    if level >= SEQ_LEVEL_4_0 {
+    if level > SEQ_LEVEL_TIER_THRESHOLD {
         w.write_bit(false);
     }
+
+    w.write_uvlc(0);
+    w.write_uvlc(1);
+
+    w.write_literal(0, 3);
+    w.write_bit(false);
+    w.write_literal(0, 2);
+    w.write_literal(0, 3);
+    w.write_bit(false);
 
     let num_bits_width = bits_needed(config.width);
     let num_bits_height = bits_needed(config.height);
@@ -34,15 +42,8 @@ pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
     w.write_literal(config.height - 1, num_bits_height as u8);
 
     w.write_bit(false);
-
-    w.write_uvlc(0);
-    w.write_uvlc(1);
-
     w.write_bit(false);
     w.write_bit(false);
-
-    w.write_literal(0, 2);
-    w.write_literal(0, 3);
 
     write_partition_group(&mut w);
     write_segment_group(&mut w);
@@ -64,20 +65,23 @@ pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
 fn compute_level(width: u32, height: u32) -> u32 {
     let pic_size = (width as u64) * (height as u64);
     let max_dim = width.max(height);
-    const LEVELS: [(u32, u32, u64, u32); 6] = [
-        (640, 640, 147456, 0),
-        (880, 880, 278784, 1),
-        (1360, 1360, 665856, 4),
-        (1720, 1720, 1065024, 5),
-        (2560, 2560, 2359296, 8),
-        (4975, 4975, 8912896, 12),
+    const LEVELS: [(u32, u64, u32); 9] = [
+        (640, 147456, 0),
+        (880, 278784, 1),
+        (1360, 665856, 2),
+        (1720, 1065024, 3),
+        (2560, 2359296, 4),
+        (4975, 8912896, 6),
+        (9951, 35651584, 10),
+        (19902, 142606336, 14),
+        (38400, 530841600, 18),
     ];
-    for &(max_w, max_h, max_pic, level_idx) in &LEVELS {
-        if width <= max_w && height <= max_h && pic_size <= max_pic && max_dim <= max_w {
+    for &(dim, pic, level_idx) in &LEVELS {
+        if width <= dim && height <= dim && pic_size <= pic && max_dim <= dim {
             return level_idx;
         }
     }
-    12
+    21
 }
 
 fn bits_needed(value: u32) -> u32 {
@@ -134,7 +138,7 @@ fn write_inter_group(w: &mut BitWriter) {
     w.write_bit(false);
     w.write_bit(false);
 
-    w.write_literal(5, 3);
+    w.write_literal(5, 4);
 
     w.write_bit(false);
 

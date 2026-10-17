@@ -26,6 +26,10 @@ const DO_SPLIT_ICDF_LEGACY: [u16; 2] = [12276, 0];
 pub struct FrameCdfContext {
     pub do_split: Vec<u16>,
     pub y_mode_set: Vec<u16>,
+    pub dpcm_y: Vec<u16>,
+    pub dpcm_vert_horz: Vec<u16>,
+    pub dpcm_uv: Vec<u16>,
+    pub dpcm_uv_vert_horz: Vec<u16>,
     pub y_mode_idx: [Vec<u16>; 3],
     pub y_mode_idx_offset: [Vec<u16>; 3],
     pub uv_mode: [Vec<u16>; 2],
@@ -124,6 +128,10 @@ impl FrameCdfContext {
         Self {
             do_split: make_cdf(&DO_SPLIT_ICDF_LEGACY, 0),
             y_mode_set: make_cdf(&Y_MODE_SET_ICDF, 93),
+            dpcm_y: make_cdf(&[16384, 0], 0),
+            dpcm_vert_horz: make_cdf(&[16384, 0], 0),
+            dpcm_uv: make_cdf(&[16384, 0], 0),
+            dpcm_uv_vert_horz: make_cdf(&[16384, 0], 0),
             y_mode_idx: [
                 make_cdf(&Y_MODE_IDX_ICDF[0], 5),
                 make_cdf(&Y_MODE_IDX_ICDF[1], 0),
@@ -457,6 +465,10 @@ impl FrameCdfContext {
         Self {
             do_split: make_cdf(&DO_SPLIT_ICDF_LEGACY, 0),
             y_mode_set: make_cdf(&Y_MODE_SET_ICDF, 93),
+            dpcm_y: make_cdf(&[16384, 0], 0),
+            dpcm_vert_horz: make_cdf(&[16384, 0], 0),
+            dpcm_uv: make_cdf(&[16384, 0], 0),
+            dpcm_uv_vert_horz: make_cdf(&[16384, 0], 0),
             y_mode_idx: [
                 make_cdf(&Y_MODE_IDX_ICDF[0], 5),
                 make_cdf(&Y_MODE_IDX_ICDF[1], 0),

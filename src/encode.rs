@@ -1227,6 +1227,9 @@ pub struct EncodedBlock {
     pub u_eob: u16,
     pub v_levels: Vec<i32>,
     pub v_eob: u16,
+    pub y_residual: Vec<i32>,
+    pub u_residual: Vec<i32>,
+    pub v_residual: Vec<i32>,
 }
 
 fn encode_uv_subblock(
@@ -1238,12 +1241,18 @@ fn encode_uv_subblock(
     uv_bsize: usize,
     dequant: i32,
     mode: IntraMode,
-) -> (Vec<i32>, u16) {
+    lossless: bool,
+) -> (Vec<i32>, u16, Vec<i32>) {
     let uv_h = recon_uv.len() / uv_w;
     let refs = get_ref_pixels(recon_uv, uv_w, ux, uy, uv_bsize, uv_w, uv_h);
     let block = extract_subblock(uv_plane, uv_w, ux, uy, uv_bsize, uv_bsize);
     let pred = predict_block_plane(&refs, uv_bsize, mode, false);
     let residual = compute_residual_block(&block, &pred);
+
+    if lossless {
+        reconstruct_block(recon_uv, uv_w, ux, uy, uv_bsize, &pred, &residual);
+        return (Vec::new(), 0, residual);
+    }
 
     if uv_bsize == 32 {
         let mut residual_arr = [0i32; 1024];
@@ -1253,7 +1262,7 @@ fn encode_uv_subblock(
         let dqcoeffs = dequantize_block(&levels, eob, dequant, 1);
         let inv_residual = dct::inverse_dct2_32x32(&dqcoeffs);
         reconstruct_block(recon_uv, uv_w, ux, uy, 32, &pred, &inv_residual);
-        (levels.to_vec(), eob)
+        (levels.to_vec(), eob, Vec::new())
     } else if uv_bsize == 16 {
         let mut residual_arr = [0i32; 256];
         residual_arr.copy_from_slice(&residual);
@@ -1274,7 +1283,7 @@ fn encode_uv_subblock(
         }
         let inv_residual = dct::inverse_dct2_16x16(&dqcoeffs);
         reconstruct_block(recon_uv, uv_w, ux, uy, 16, &pred, &inv_residual.to_vec());
-        (levels, eob)
+        (levels, eob, Vec::new())
     } else if uv_bsize == 8 {
         let mut residual_arr = [0i32; 64];
         residual_arr.copy_from_slice(&residual);
@@ -1295,7 +1304,7 @@ fn encode_uv_subblock(
         }
         let inv_residual = dct::inverse_dct2_8x8(&dqcoeffs);
         reconstruct_block(recon_uv, uv_w, ux, uy, 8, &pred, &inv_residual.to_vec());
-        (levels, eob)
+        (levels, eob, Vec::new())
     } else if uv_bsize == 4 {
         let pred = predict_block_plane(&refs, 4, mode, false);
         let residual = compute_residual_block(&block, &pred);
@@ -1318,7 +1327,7 @@ fn encode_uv_subblock(
         }
         let inv_residual = dct::inverse_dct2_4x4(&dqcoeffs);
         reconstruct_block(recon_uv, uv_w, ux, uy, 4, &pred, &inv_residual.to_vec());
-        (levels, eob)
+        (levels, eob, Vec::new())
     } else {
         panic!("unsupported UV block size: {}", uv_bsize);
     }
@@ -1335,12 +1344,34 @@ fn encode_block_var(
     forced_mode: Option<IntraMode>,
     right_limit: usize,
     bottom_limit: usize,
+    lossless: bool,
 ) -> EncodedBlock {
     let refs = get_ref_pixels(recon, plane_w, x, y, bsize, right_limit, bottom_limit);
     let block = extract_subblock(pixels, plane_w, x, y, bsize, bsize);
     let mode = forced_mode.unwrap_or_else(|| select_intra_mode(&block, &refs, bsize));
     let pred_block = predict_block(&refs, bsize, mode);
     let residual = compute_residual_block(&block, &pred_block);
+
+    if lossless {
+        reconstruct_block(recon, plane_w, x, y, bsize, &pred_block, &residual);
+        return EncodedBlock {
+            x,
+            y,
+            bsize,
+            mode,
+            levels: Vec::new(),
+            eob: 0,
+            log_scale: 0,
+            uv_mode: IntraMode::DcPred,
+            u_levels: Vec::new(),
+            u_eob: 0,
+            v_levels: Vec::new(),
+            v_eob: 0,
+            y_residual: residual,
+            u_residual: Vec::new(),
+            v_residual: Vec::new(),
+        };
+    }
 
     if bsize == 64 {
         let mut residual_arr = [0i32; 4096];
@@ -1357,6 +1388,7 @@ fn encode_block_var(
             eob,
             log_scale: 2,
             uv_mode: IntraMode::DcPred, u_levels: Vec::new(), u_eob: 0, v_levels: Vec::new(), v_eob: 0,
+            y_residual: Vec::new(), u_residual: Vec::new(), v_residual: Vec::new(),
         }
     } else if bsize == 32 {
         let mut residual_arr = [0i32; 1024];
@@ -1372,6 +1404,7 @@ fn encode_block_var(
             eob,
             log_scale: 1,
             uv_mode: IntraMode::DcPred, u_levels: Vec::new(), u_eob: 0, v_levels: Vec::new(), v_eob: 0,
+            y_residual: Vec::new(), u_residual: Vec::new(), v_residual: Vec::new(),
         }
     } else if bsize == 16 {
         let mut residual_arr = [0i32; 256];
@@ -1397,6 +1430,7 @@ fn encode_block_var(
             x, y, bsize, mode, levels, eob,
             log_scale: 0,
             uv_mode: IntraMode::DcPred, u_levels: Vec::new(), u_eob: 0, v_levels: Vec::new(), v_eob: 0,
+            y_residual: Vec::new(), u_residual: Vec::new(), v_residual: Vec::new(),
         }
     } else if bsize == 8 {
         let mut residual_arr = [0i32; 64];
@@ -1422,6 +1456,7 @@ fn encode_block_var(
             x, y, bsize, mode, levels, eob,
             log_scale: 0,
             uv_mode: IntraMode::DcPred, u_levels: Vec::new(), u_eob: 0, v_levels: Vec::new(), v_eob: 0,
+            y_residual: Vec::new(), u_residual: Vec::new(), v_residual: Vec::new(),
         }
     } else {
         panic!("unsupported block size: {}", bsize);
@@ -1447,6 +1482,7 @@ fn encode_partition_rd(
     min_bsize: usize,
     right_limit: usize,
     bottom_limit: usize,
+    lossless: bool,
 ) -> Vec<EncodedBlock> {
 
     let original = extract_subblock(pixels, plane_w, x, y, bsize, bsize);
@@ -1460,7 +1496,10 @@ fn encode_partition_rd(
         buf
     };
 
-    let no_split = encode_block_var(pixels, plane_w, recon, x, y, bsize, dequant, None, right_limit, bottom_limit);
+    let no_split = encode_block_var(pixels, plane_w, recon, x, y, bsize, dequant, None, right_limit, bottom_limit, lossless);
+    if lossless {
+        return vec![no_split];
+    }
     let recon_no_split = extract_subblock(recon, plane_w, x, y, bsize, bsize);
     let dist_no_split = compute_ssd(&original, &recon_no_split);
 
@@ -1483,7 +1522,7 @@ fn encode_partition_rd(
         (x+half, y+half, x + bsize,         y + bsize),
     ];
     for &(bx, by, rl, bl) in &sub_params {
-        let sub = encode_partition_rd(pixels, plane_w, recon, bx, by, half, dequant, lambda, min_bsize, rl, bl);
+        let sub = encode_partition_rd(pixels, plane_w, recon, bx, by, half, dequant, lambda, min_bsize, rl, bl, lossless);
         split_blocks.extend(sub);
     }
 
@@ -1556,6 +1595,7 @@ fn encode_frame_yuv(
     ];
 
     let lambda = qindex_to_lambda(params.base_qindex);
+    let lossless = params.base_qindex == 0;
 
     let mut sbs = Vec::with_capacity(sb_cols * sb_rows);
     for sb_row in 0..sb_rows {
@@ -1581,7 +1621,7 @@ fn encode_frame_yuv(
 
                 let mut leaf_blocks = encode_partition_rd(
                     y_plane, w, &mut recon_y, yx, yy, 32, params.dequant, lambda, 8,
-                    right_limit, bottom_limit,
+                    right_limit, bottom_limit, lossless,
                 );
 
 
@@ -1592,11 +1632,11 @@ fn encode_frame_yuv(
                     let uy = block.y / 2;
 
                     let uv_mode = IntraMode::DcPred;
-                    let (u_levels, u_eob) = encode_uv_subblock(
-                        u_plane, uv_w, &mut recon_u, ux, uy, uv_bsize, params.dequant, uv_mode,
+                    let (u_levels, u_eob, u_residual) = encode_uv_subblock(
+                        u_plane, uv_w, &mut recon_u, ux, uy, uv_bsize, params.dequant, uv_mode, lossless,
                     );
-                    let (v_levels, v_eob) = encode_uv_subblock(
-                        v_plane, uv_w, &mut recon_v, ux, uy, uv_bsize, params.dequant, uv_mode,
+                    let (v_levels, v_eob, v_residual) = encode_uv_subblock(
+                        v_plane, uv_w, &mut recon_v, ux, uy, uv_bsize, params.dequant, uv_mode, lossless,
                     );
 
                     block.uv_mode = uv_mode;
@@ -1604,6 +1644,8 @@ fn encode_frame_yuv(
                     block.u_eob = u_eob;
                     block.v_levels = v_levels;
                     block.v_eob = v_eob;
+                    block.u_residual = u_residual;
+                    block.v_residual = v_residual;
                 }
 
                 y_blocks.extend(leaf_blocks);

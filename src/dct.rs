@@ -643,6 +643,100 @@ pub fn inverse_transform_2d_rect(
     output
 }
 
+fn forward_wht_1d(src: [i32; 4]) -> [i32; 4] {
+    let mut a = src[0];
+    let mut b = src[1];
+    let mut c = src[2];
+    let mut d = src[3];
+
+    a += b;
+    d -= c;
+    let e = (a - d) >> 1;
+    b = e - b;
+    c = e - c;
+    a -= c;
+    d += b;
+
+    [a, c, d, b]
+}
+
+fn inverse_wht_1d(src: [i32; 4], shift: u32) -> [i32; 4] {
+    let mut a = src[0] >> shift;
+    let mut c = src[1] >> shift;
+    let mut d = src[2] >> shift;
+    let mut b = src[3] >> shift;
+
+    a += c;
+    d -= b;
+    let e = (a - d) >> 1;
+    b = e - b;
+    c = e - c;
+    a -= b;
+    d += c;
+
+    [a, b, c, d]
+}
+
+pub fn forward_wht4x4(residual: &[i32; 16]) -> [i32; 16] {
+    let mut columns = [0i32; 16];
+    for col in 0..4 {
+        let src = [
+            residual[col],
+            residual[4 + col],
+            residual[8 + col],
+            residual[12 + col],
+        ];
+        let out = forward_wht_1d(src);
+        for row in 0..4 {
+            columns[row * 4 + col] = out[row];
+        }
+    }
+
+    let mut coeffs = [0i32; 16];
+    for row in 0..4 {
+        let src = [
+            columns[row * 4],
+            columns[row * 4 + 1],
+            columns[row * 4 + 2],
+            columns[row * 4 + 3],
+        ];
+        let out = forward_wht_1d(src);
+        coeffs[row * 4..row * 4 + 4].copy_from_slice(&out);
+    }
+
+    coeffs
+}
+
+pub fn inverse_wht4x4_lossless(levels: &[i32; 16]) -> [i32; 16] {
+    let mut dequant = [0i32; 16];
+    for i in 0..16 {
+        dequant[i] = levels[i] * 8;
+    }
+
+    let mut rows = [0i32; 16];
+    for row in 0..4 {
+        let src = [
+            dequant[row * 4],
+            dequant[row * 4 + 1],
+            dequant[row * 4 + 2],
+            dequant[row * 4 + 3],
+        ];
+        let out = inverse_wht_1d(src, 3);
+        rows[row * 4..row * 4 + 4].copy_from_slice(&out);
+    }
+
+    let mut residual = [0i32; 16];
+    for col in 0..4 {
+        let src = [rows[col], rows[4 + col], rows[8 + col], rows[12 + col]];
+        let out = inverse_wht_1d(src, 0);
+        for row in 0..4 {
+            residual[row * 4 + col] = out[row];
+        }
+    }
+
+    residual
+}
+
 pub fn forward_dct2_4x4(residual: &[i32; 16]) -> [i32; 16] {
     let mut temp = [[0i32; 4]; 4];
 

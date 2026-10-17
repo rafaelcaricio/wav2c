@@ -335,6 +335,7 @@ struct PlaneEncodeCtx {
     entropy_ctx: usize,
     u_has_coeffs: bool,
     tx_size_sqr: usize,
+    lossless: bool,
 }
 
 fn encode_plane_full(
@@ -373,7 +374,7 @@ fn encode_plane_full(
     let num_coeffs = ctx.num_coeffs;
     encode_eob_var_size(ec, eob, num_coeffs, pl_ctx, cdf, update);
 
-    if plane == 0 && eob > 1 && ctx.tx_size_sqr < 3 {
+    if plane == 0 && eob > 1 && ctx.tx_size_sqr < 3 && !ctx.lossless {
         encode_sym(ec, 0, &mut cdf.intra_ext_tx[ctx.tx_size_sqr.min(3)], update);
     }
 
@@ -528,9 +529,13 @@ fn encode_y_mode(
     ec: &mut DaalaCoder,
     mode_idx: usize,
     y_mode_idx_ctx: usize,
+    lossless: bool,
     cdf: &mut FrameCdfContext,
     update: bool,
 ) {
+    if lossless {
+        encode_sym(ec, 0, &mut cdf.dpcm_y, update);
+    }
     if mode_idx < 13 {
         encode_sym(ec, 0, &mut cdf.y_mode_set, update);
         if mode_idx < 7 {
@@ -557,9 +562,13 @@ fn encode_uv_mode(
     ec: &mut DaalaCoder,
     uv_mode_idx: usize,
     uv_ctx: usize,
+    lossless: bool,
     cdf: &mut FrameCdfContext,
     update: bool,
 ) {
+    if lossless {
+        encode_sym(ec, 0, &mut cdf.dpcm_uv, update);
+    }
     if uv_mode_idx < 7 {
         encode_sym(ec, uv_mode_idx, &mut cdf.uv_mode[uv_ctx], update);
     } else {
@@ -594,8 +603,8 @@ pub fn encode_tile_data_with_coeffs(
     let uv_ctx = if y_intra.is_directional() { 1 } else { 0 };
 
     encode_sym(&mut ec, 0, &mut cdf.do_split, false);
-    encode_y_mode(&mut ec, y_mode_idx, 0, &mut cdf, false);
-    encode_uv_mode(&mut ec, uv_mode_idx, uv_ctx, &mut cdf, false);
+    encode_y_mode(&mut ec, y_mode_idx, 0, false, &mut cdf, false);
+    encode_uv_mode(&mut ec, uv_mode_idx, uv_ctx, false, &mut cdf, false);
 
     let y_coeffs = PlaneCoeffs {
         levels: y_levels,
@@ -615,6 +624,7 @@ pub fn encode_tile_data_with_coeffs(
             entropy_ctx: 0,
             u_has_coeffs: false,
             tx_size_sqr: 3,
+            lossless: false,
         },
         &mut cdf,
         false,
@@ -638,6 +648,7 @@ pub fn encode_tile_data_with_coeffs(
             entropy_ctx: 0,
             u_has_coeffs: false,
             tx_size_sqr: 3,
+            lossless: false,
         },
         &mut cdf,
         false,
@@ -661,6 +672,7 @@ pub fn encode_tile_data_with_coeffs(
             entropy_ctx: 0,
             u_has_coeffs: u_eob > 0,
             tx_size_sqr: 3,
+            lossless: false,
         },
         &mut cdf,
         false,
@@ -798,8 +810,8 @@ pub fn encode_tile_data_multi_sb(
             let y_mode_idx_ctx = is_left_dir as usize + is_above_dir as usize;
 
             encode_sym(&mut ec, 0, &mut cdf_ctx.do_split, update);
-            encode_y_mode(&mut ec, y_mode_idx, y_mode_idx_ctx, &mut cdf_ctx, update);
-            encode_uv_mode(&mut ec, uv_mode_idx, uv_ctx, &mut cdf_ctx, update);
+            encode_y_mode(&mut ec, y_mode_idx, y_mode_idx_ctx, false, &mut cdf_ctx, update);
+            encode_uv_mode(&mut ec, uv_mode_idx, uv_ctx, false, &mut cdf_ctx, update);
 
             left_joint = y_joint;
             above_joint[sb_col] = y_joint;
@@ -824,6 +836,7 @@ pub fn encode_tile_data_multi_sb(
                     entropy_ctx: 0,
                     u_has_coeffs: false,
                     tx_size_sqr: 3,
+                    lossless: false,
                 },
                 &mut cdf_ctx,
                 update,
@@ -854,6 +867,7 @@ pub fn encode_tile_data_multi_sb(
                     entropy_ctx: u_entropy_ctx,
                     u_has_coeffs: false,
                     tx_size_sqr: 3,
+                    lossless: false,
                 },
                 &mut cdf_ctx,
                 update,
@@ -884,6 +898,7 @@ pub fn encode_tile_data_multi_sb(
                     entropy_ctx: v_entropy_ctx,
                     u_has_coeffs: sb.u_eob > 0,
                     tx_size_sqr: 3,
+                    lossless: false,
                 },
                 &mut cdf_ctx,
                 update,
@@ -974,6 +989,114 @@ struct PartCtx<'a> {
 }
 
 #[allow(clippy::too_many_arguments)]
+const SKIP_CONTEXTS_Y: [[u8; 5]; 5] = [
+    [1, 2, 2, 3, 3],
+    [2, 2, 3, 3, 4],
+    [2, 3, 3, 4, 4],
+    [3, 3, 4, 4, 5],
+    [3, 4, 4, 5, 5],
+];
+
+fn lossless_skip_ctx_y(above: u8, left: u8) -> usize {
+    let top = (above & COEFF_CONTEXT_MASK).min(4) as usize;
+    let left = (left & COEFF_CONTEXT_MASK).min(4) as usize;
+    SKIP_CONTEXTS_Y[top][left] as usize
+}
+
+fn scan_4x4_levels(coeffs: &[i32; 16]) -> (Vec<i32>, u16) {
+    let scan = &crate::scan::DEFAULT_SCAN_4X4;
+    let mut levels = vec![0i32; 16];
+    let mut eob = 0u16;
+    for scan_idx in 0..16 {
+        let coeff_idx = scan[scan_idx] as usize;
+        levels[scan_idx] = coeffs[coeff_idx];
+        if coeffs[coeff_idx] != 0 {
+            eob = scan_idx as u16 + 1;
+        }
+    }
+    (levels, eob)
+}
+
+fn encode_lossless_plane(
+    ec: &mut DaalaCoder,
+    plane: usize,
+    residual: &[i32],
+    plane_w: usize,
+    plane_h: usize,
+    base_above: usize,
+    base_left: usize,
+    above: &mut [u8],
+    left: &mut [u8],
+    v_u_has_coeffs: bool,
+    cdf: &mut FrameCdfContext,
+    update: bool,
+) {
+    let blocks_w = plane_w / 4;
+    if blocks_w == 0 {
+        return;
+    }
+    let blocks_h = plane_h / 4;
+    for by in 0..blocks_h {
+        for bx in 0..blocks_w {
+            let mut residual_4x4 = [0i32; 16];
+            for y in 0..4 {
+                for x in 0..4 {
+                    residual_4x4[y * 4 + x] = residual[(by * 4 + y) * plane_w + bx * 4 + x];
+                }
+            }
+
+            let coeffs = crate::dct::forward_wht4x4(&residual_4x4);
+            let (levels, eob) = scan_4x4_levels(&coeffs);
+
+            let mi_x = base_above + bx;
+            let mi_y = base_left + by;
+            let entropy_ctx = if plane == 0 {
+                lossless_skip_ctx_y(above[mi_x], left[mi_y])
+            } else {
+                let base = compute_entropy_ctx(&above[mi_x..mi_x + 1], &left[mi_y..mi_y + 1]);
+                if plane == 2 && plane_w * plane_h > 16 {
+                    base + 3
+                } else {
+                    base
+                }
+            };
+            let dc_sign_ctx = if plane == 0 {
+                compute_dc_sign_ctx(&above[mi_x..mi_x + 1], &left[mi_y..mi_y + 1])
+            } else {
+                0
+            };
+            let u_has_coeffs = plane == 2 && v_u_has_coeffs;
+
+            let coeffs_ref = PlaneCoeffs {
+                levels: &levels,
+                eob,
+            };
+            encode_plane_full(
+                ec,
+                &coeffs_ref,
+                &PlaneEncodeCtx {
+                    plane,
+                    txs_ctx_idx: 0,
+                    bwl: 2,
+                    height: 4,
+                    num_coeffs: 16,
+                    dc_sign_ctx,
+                    entropy_ctx,
+                    u_has_coeffs,
+                    tx_size_sqr: 0,
+                    lossless: true,
+                },
+                cdf,
+                update,
+            );
+
+            let cul = compute_cul_level_vec(&levels, eob);
+            above[mi_x] = cul;
+            left[mi_y] = cul;
+        }
+    }
+}
+
 fn encode_leaf_block(
     ec: &mut DaalaCoder,
     block: &crate::encode::EncodedBlock,
@@ -983,6 +1106,7 @@ fn encode_leaf_block(
     ctx: &mut PartCtx,
     sb_row: usize,
     sb_col: usize,
+    lossless: bool,
     cdf: &mut FrameCdfContext,
     update: bool,
 ) {
@@ -1019,11 +1143,76 @@ fn encode_leaf_block(
     let is_above_dir = above_j.map(|j| j >= 5).unwrap_or(false);
     let y_mode_idx_ctx = is_left_dir as usize + is_above_dir as usize;
 
-    encode_y_mode(ec, y_mode_idx, y_mode_idx_ctx, cdf, update);
-    encode_uv_mode(ec, uv_mode_idx, uv_ctx, cdf, update);
+    encode_y_mode(ec, y_mode_idx, y_mode_idx_ctx, lossless, cdf, update);
+    encode_uv_mode(ec, uv_mode_idx, uv_ctx, lossless, cdf, update);
 
     for i in 0..mi_size { ctx.above_mode[mi_col + i] = Some(y_joint); }
     for i in 0..mi_size { ctx.left_mode[mi_row + i] = Some(y_joint); }
+
+    if lossless {
+        encode_lossless_plane(
+            ec,
+            0,
+            &block.y_residual,
+            bsize,
+            bsize,
+            mi_col,
+            mi_row,
+            &mut ctx.above_y,
+            &mut ctx.left_y,
+            false,
+            cdf,
+            update,
+        );
+
+        let mut u_eobs = vec![0u16; (uv_bsize / 4) * (uv_bsize / 4)];
+        encode_lossless_plane(
+            ec,
+            1,
+            &block.u_residual,
+            uv_bsize,
+            uv_bsize,
+            uv_abs_col,
+            uv_sb_row,
+            &mut ctx.above_u,
+            &mut ctx.left_u,
+            false,
+            cdf,
+            update,
+        );
+        let mut idx = 0;
+        for by in 0..(uv_bsize / 4) {
+            for bx in 0..(uv_bsize / 4) {
+                let mut residual_4x4 = [0i32; 16];
+                for y in 0..4 {
+                    for x in 0..4 {
+                        residual_4x4[y * 4 + x] =
+                            block.u_residual[(by * 4 + y) * uv_bsize + bx * 4 + x];
+                    }
+                }
+                let coeffs = crate::dct::forward_wht4x4(&residual_4x4);
+                let (_, eob) = scan_4x4_levels(&coeffs);
+                u_eobs[idx] = eob;
+                idx += 1;
+            }
+        }
+        let v_u_has_coeffs = u_eobs.last().map(|&eob| eob > 0).unwrap_or(false);
+        encode_lossless_plane(
+            ec,
+            2,
+            &block.v_residual,
+            uv_bsize,
+            uv_bsize,
+            uv_abs_col,
+            uv_sb_row,
+            &mut ctx.above_v,
+            &mut ctx.left_v,
+            v_u_has_coeffs,
+            cdf,
+            update,
+        );
+        return;
+    }
 
     let y_txs_ctx = txs_ctx_idx_for_bsize(bsize);
     let y_bwl = bwl_for_bsize(bsize);
@@ -1041,6 +1230,7 @@ fn encode_leaf_block(
         plane: 0, txs_ctx_idx: y_txs_ctx, bwl: y_bwl, height: y_h, num_coeffs: y_nc,
         dc_sign_ctx: y_dc_sign_ctx, entropy_ctx: y_entropy_ctx, u_has_coeffs: false,
         tx_size_sqr: y_tx_size_sqr,
+        lossless: false,
     }, cdf, update);
 
     let y_cul = compute_cul_level_vec(&block.levels, block.eob);
@@ -1063,6 +1253,7 @@ fn encode_leaf_block(
         plane: 1, txs_ctx_idx: uv_txs_ctx, bwl: uv_bwl, height: uv_h, num_coeffs: uv_nc,
         dc_sign_ctx: 0, entropy_ctx: u_entropy_ctx, u_has_coeffs: false,
         tx_size_sqr: uv_tx_size_sqr,
+        lossless: false,
     }, cdf, update);
 
     let u_cul = compute_cul_level_vec(&block.u_levels, block.u_eob);
@@ -1078,6 +1269,7 @@ fn encode_leaf_block(
         plane: 2, txs_ctx_idx: uv_txs_ctx, bwl: uv_bwl, height: uv_h, num_coeffs: uv_nc,
         dc_sign_ctx: 0, entropy_ctx: v_entropy_ctx, u_has_coeffs: block.u_eob > 0,
         tx_size_sqr: uv_tx_size_sqr,
+        lossless: false,
     }, cdf, update);
 
     let v_cul = compute_cul_level_vec(&block.v_levels, block.v_eob);
@@ -1095,6 +1287,7 @@ fn encode_sq_part(
     ctx: &mut PartCtx,
     sb_row: usize,
     sb_col: usize,
+    lossless: bool,
     cdf: &mut FrameCdfContext,
     update: bool,
 ) {
@@ -1113,7 +1306,7 @@ fn encode_sq_part(
         encode_sym(ec, 0, &mut cdf.do_split_part[0][split_ctx.min(63)], update);
 
         let block = blocks.iter().find(|b| b.x == x && b.y == y && b.bsize == bsize).unwrap();
-        encode_leaf_block(ec, block, mi_col, mi_row, bsize, ctx, sb_row, sb_col, cdf, update);
+        encode_leaf_block(ec, block, mi_col, mi_row, bsize, ctx, sb_row, sb_col, lossless, cdf, update);
 
         let pctx_a = part_ctx_above(bsize);
         let pctx_l = part_ctx_left(bsize);
@@ -1135,8 +1328,8 @@ fn encode_sq_part(
         let rctx = rect_type_ctx(&blk_above, &blk_left, bw_log2, bw_log2, rgroup);
         encode_sym(ec, 0, &mut cdf.rect_type[0][rctx.min(63)], update);
 
-        encode_rect_vert(ec, blocks, x, y, bsize, half, ctx, sb_row, sb_col, cdf, update);
-        encode_rect_vert(ec, blocks, x, y + half, bsize, half, ctx, sb_row, sb_col, cdf, update);
+        encode_rect_vert(ec, blocks, x, y, bsize, half, ctx, sb_row, sb_col, lossless, cdf, update);
+        encode_rect_vert(ec, blocks, x, y + half, bsize, half, ctx, sb_row, sb_col, lossless, cdf, update);
     }
 }
 
@@ -1151,6 +1344,7 @@ fn encode_rect_vert(
     ctx: &mut PartCtx,
     sb_row: usize,
     sb_col: usize,
+    lossless: bool,
     cdf: &mut FrameCdfContext,
     update: bool,
 ) {
@@ -1173,8 +1367,8 @@ fn encode_rect_vert(
     let rctx = rect_type_ctx(&rect_above, &rect_left, bw_log2, bh_log2, rgroup);
     encode_sym(ec, 1, &mut cdf.rect_type[0][rctx.min(63)], update);
 
-    encode_sq_part(ec, blocks, x, y, half_w, ctx, sb_row, sb_col, cdf, update);
-    encode_sq_part(ec, blocks, x + half_w, y, half_w, ctx, sb_row, sb_col, cdf, update);
+    encode_sq_part(ec, blocks, x, y, half_w, ctx, sb_row, sb_col, lossless, cdf, update);
+    encode_sq_part(ec, blocks, x + half_w, y, half_w, ctx, sb_row, sb_col, lossless, cdf, update);
 }
 
 pub fn encode_tile_data_split4(
@@ -1187,6 +1381,7 @@ pub fn encode_tile_data_split4(
     let mut ec = DaalaCoder::new();
     let mut cdf = FrameCdfContext::new_with_qindex(base_qindex);
     let update = allow_update_cdf;
+    let lossless = base_qindex == 0;
 
     let mi_cols = sb_cols * 16;
     let mut above_part = vec![0u8; mi_cols];
@@ -1253,7 +1448,7 @@ pub fn encode_tile_data_split4(
                         };
                         encode_sq_part(
                             &mut ec, &blk_blocks, bx, by, 32,
-                            &mut pctx, sb_row, sb_col, &mut cdf, update,
+                            &mut pctx, sb_row, sb_col, lossless, &mut cdf, update,
                         );
                     }
                 }
@@ -1391,8 +1586,8 @@ fn encode_partition_and_coeffs(
                 let uv_list = crate::encode::build_uv_mode_list(block.mode);
                 let uv_mode_idx = crate::encode::find_uv_mode_idx(&uv_list, block.uv_mode);
                 let uv_ctx = if block.mode.is_directional() { 1 } else { 0 };
-                encode_y_mode(ec, y_mode_idx, 0, cdf, update);
-                encode_uv_mode(ec, uv_mode_idx, uv_ctx, cdf, update);
+                encode_y_mode(ec, y_mode_idx, 0, false, cdf, update);
+                encode_uv_mode(ec, uv_mode_idx, uv_ctx, false, cdf, update);
             }
 
             let y_dc_sign_ctx = compute_dc_sign_ctx(above_y, left_y);
@@ -1401,7 +1596,7 @@ fn encode_partition_and_coeffs(
             encode_plane_full(ec, &coeffs, &PlaneEncodeCtx {
                 plane: 0, txs_ctx_idx: txs_ctx, bwl, height: h, num_coeffs: nc,
                 dc_sign_ctx: y_dc_sign_ctx, entropy_ctx: 0, u_has_coeffs: false,
-                tx_size_sqr: y_tx_sqr,
+                tx_size_sqr: y_tx_sqr, lossless: false,
             }, cdf, update);
 
             let uv_tx_sqr = tx_size_sqr_for_bsize(uv_bsize);
@@ -1410,7 +1605,7 @@ fn encode_partition_and_coeffs(
             encode_plane_full(ec, &u_coeffs, &PlaneEncodeCtx {
                 plane: 1, txs_ctx_idx: uv_txs_ctx, bwl: uv_bwl, height: uv_h, num_coeffs: uv_nc,
                 dc_sign_ctx: 0, entropy_ctx: u_entropy_ctx, u_has_coeffs: false,
-                tx_size_sqr: uv_tx_sqr,
+                tx_size_sqr: uv_tx_sqr, lossless: false,
             }, cdf, update);
 
             let v_entropy_ctx = compute_entropy_ctx(above_v, left_v);
@@ -1418,7 +1613,7 @@ fn encode_partition_and_coeffs(
             encode_plane_full(ec, &v_coeffs, &PlaneEncodeCtx {
                 plane: 2, txs_ctx_idx: uv_txs_ctx, bwl: uv_bwl, height: uv_h, num_coeffs: uv_nc,
                 dc_sign_ctx: 0, entropy_ctx: v_entropy_ctx, u_has_coeffs: block.u_eob > 0,
-                tx_size_sqr: uv_tx_sqr,
+                tx_size_sqr: uv_tx_sqr, lossless: false,
             }, cdf, update);
         }
         PartitionNode::Split(children) => {
@@ -1565,6 +1760,9 @@ mod tests {
                 u_eob: 0,
                 v_levels: vec![0i32; 1024],
                 v_eob: 0,
+                y_residual: Vec::new(),
+                u_residual: Vec::new(),
+                v_residual: Vec::new(),
             }],
             u_levels: [0i32; 1024],
             u_eob: 0,
@@ -1629,6 +1827,9 @@ mod tests {
                     v
                 },
                 v_eob: 1,
+                y_residual: Vec::new(),
+                u_residual: Vec::new(),
+                v_residual: Vec::new(),
             }],
             u_levels: { let mut l = [0i32; 1024]; l[0] = 50; l },
             u_eob: 1,

@@ -87,6 +87,55 @@ pub fn dequantize_and_inverse(
     }
 }
 
+fn inverse_wht_1d(src: [i32; 4], shift: u32) -> [i32; 4] {
+    let mut a = src[0] >> shift;
+    let mut c = src[1] >> shift;
+    let mut d = src[2] >> shift;
+    let mut b = src[3] >> shift;
+
+    a += c;
+    d -= b;
+    let e = (a - d) >> 1;
+    b = e - b;
+    c = e - c;
+    a -= b;
+    d += c;
+
+    [a, b, c, d]
+}
+
+pub fn lossless_residual(levels: &[i32], eob: u16) -> Vec<i32> {
+    let mut coeffs = [0i32; 16];
+    let scan = get_scan_for_tx(TxSize::Tx4x4, 0);
+    for scan_idx in 0..(eob as usize) {
+        let coeff_idx = scan[scan_idx] as usize;
+        coeffs[coeff_idx] = levels[scan_idx] * 8;
+    }
+
+    let mut rows = [0i32; 16];
+    for row in 0..4 {
+        let src = [
+            coeffs[row * 4],
+            coeffs[row * 4 + 1],
+            coeffs[row * 4 + 2],
+            coeffs[row * 4 + 3],
+        ];
+        let out = inverse_wht_1d(src, 3);
+        rows[row * 4..row * 4 + 4].copy_from_slice(&out);
+    }
+
+    let mut residual = [0i32; 16];
+    for col in 0..4 {
+        let src = [rows[col], rows[4 + col], rows[8 + col], rows[12 + col]];
+        let out = inverse_wht_1d(src, 0);
+        for row in 0..4 {
+            residual[row * 4 + col] = out[row];
+        }
+    }
+
+    residual.to_vec()
+}
+
 pub fn dequantize_and_inverse_var(
     levels: &[i32],
     eob: u16,
