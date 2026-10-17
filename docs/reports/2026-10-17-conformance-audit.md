@@ -13,6 +13,41 @@ and fed to the reference `avmdec`, and bitstreams produced by the reference
 `docs/reports/2026-10-17-header-spec-audit.md` was independently re-checked;
 several of its claims need correction (see §5).
 
+## 0. Resolution status (2026-10-18, branch `av2-v1.0.0-conformance`)
+
+The findings below are the state at the time of the audit. All blockers in
+§1 have since been fixed on the conformance branch and verified against the
+same AVM HEAD (`ce1ec108a82b`):
+
+| Item | Resolution |
+|---|---|
+| Sequence header (§3 E1–E3) | Reordered to §5.4.1, `monotonic_output_order_flag` emitted, tier gated on `seq_level_idx > 3`, Table A.8 levels, `order_hint_bits_minus_1 f(4)`. Encoder and decoder agree; `avmdec` prescan accepts the streams |
+| OBU framing (§3 E4–E5) | `ObuType::Padding = 25`; every temporal unit starts with `OBU_TEMPORAL_DELIMITER` (`TD SH CLK [TD CLK]*`) |
+| Lossless (qindex 0) | 4x4 TUs and no tx-type bits; per-TU prediction uses the same availability mask as the decoder; inverse WHT for luma **and chroma**; DPCM vertical/horizontal cumulative residuals. `--qindex 0` encodes decode **bit-exactly** via `avmdec` and the internal decoder on solid/gradient/testsrc2/noise and multi-frame inputs |
+| Decoder OBU handling (§4 D1) | Scans for the sequence-header OBU; accepts TD-prefixed streams |
+| Decoder flat-SB shortcut (§4 D2) | Removed; all frames use the partitioned decoder and failures are explicit errors |
+| Decoder lossless (§4 D4) | Reference lossless streams (`avmenc --qp=0`) decode **bit-exactly**, including DPCM blocks |
+| Decoder luma rounding (§4 D3) | Caused by applying the directional edge filter when `enable_intra_edge_filter = 0`; the flag is now parsed and honored. Reference qindex>0 streams decode bit-exactly (96×128, 128×96, 128×128, 192×192, 64×64) |
+| Tests | Draft-era avmenc fixtures regenerated with current v1.0.0 `avmenc`; `cargo test`: 328 passed / 0 failed (18 ignored integration tests pass with `--ignored`); `cargo clippy --tests`: no errors |
+
+Validation matrix (av2codec encoder, stock `avmdec`):
+
+| Input | q0 | q50/q200 |
+|---|---|---|
+| solid red 64×64 | bit-exact vs source | bit-exact |
+| gradient 64×64 | bit-exact | decodes; avmdec/internal decoder differ by ≤1 LSB on 6 samples |
+| testsrc2 64×64 | bit-exact | ≤1 LSB on 21 samples |
+| multi-color / multi-gray 3 frames | bit-exact | bit-exact |
+| 128×128 noise, 192×192 gradient | bit-exact | luma bit-exact; small chroma ≤1 LSB deltas on noise |
+
+Note on AVM CLI semantics: in this build `--qp=N` is an absolute qindex
+(logged as `Q: N`), so a true lossless reference stream is `--qp=0`;
+`--qp=120` is a lossy qindex-120 stream, not lossless.
+
+Independent corrections to the header audit (§5) remain valid: the filter
+group is already **9 bits**, and the transform/quant group has **12 flags
+before `equal_ac_dc_q`**, so neither is a defect.
+
 ## 1. Bottom line
 
 | Layer | Verdict |
