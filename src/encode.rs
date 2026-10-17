@@ -1232,10 +1232,65 @@ pub struct EncodedBlock {
     pub v_residual: Vec<i32>,
 }
 
+fn lossless_block_residual(
+    pixels: &[u8],
+    plane_w: usize,
+    recon: &mut [u8],
+    ready: &mut [bool],
+    x: usize,
+    y: usize,
+    bsize: usize,
+    mode: IntraMode,
+    is_luma: bool,
+) -> Vec<i32> {
+    let pred_mode = crate::decode::predict::PredictionMode::from_u8(mode as u8);
+    let mut residual = vec![0i32; bsize * bsize];
+    for ty in (0..bsize).step_by(4) {
+        for tx in (0..bsize).step_by(4) {
+            let tu_x = x + tx;
+            let tu_y = y + ty;
+            let pred = crate::decode::predict::predict_intra_with_control_and_availability(
+                recon,
+                plane_w,
+                tu_x,
+                tu_y,
+                4,
+                4,
+                pred_mode,
+                0,
+                0,
+                0,
+                crate::decode::predict::IntraPredictControl {
+                    plane: if is_luma { 0 } else { 1 },
+                    enable_ibp: false,
+                    is_cfl: false,
+                    above_filter_type: 0,
+                    left_filter_type: 0,
+                },
+                Some(ready),
+            );
+            let block = extract_subblock(pixels, plane_w, tu_x, tu_y, 4, 4);
+            let tu_residual = compute_residual_block(&block, &pred);
+            for row in 0..4 {
+                for col in 0..4 {
+                    residual[(ty + row) * bsize + tx + col] = tu_residual[row * 4 + col];
+                }
+            }
+            reconstruct_block(recon, plane_w, tu_x, tu_y, 4, &pred, &tu_residual);
+            for row in 0..4 {
+                ready[(tu_y + row) * plane_w + tu_x..(tu_y + row) * plane_w + tu_x + 4]
+                    .fill(true);
+            }
+        }
+    }
+    residual
+}
+
 fn encode_uv_subblock(
     uv_plane: &[u8],
     uv_w: usize,
     recon_uv: &mut [u8],
+    ready_uv: &mut [bool],
     ux: usize,
     uy: usize,
     uv_bsize: usize,
@@ -1243,16 +1298,17 @@ fn encode_uv_subblock(
     mode: IntraMode,
     lossless: bool,
 ) -> (Vec<i32>, u16, Vec<i32>) {
+    if lossless {
+        let residual = lossless_block_residual(
+            uv_plane, uv_w, recon_uv, ready_uv, ux, uy, uv_bsize, mode, false,
+        );
+        return (Vec::new(), 0, residual);
+    }
     let uv_h = recon_uv.len() / uv_w;
     let refs = get_ref_pixels(recon_uv, uv_w, ux, uy, uv_bsize, uv_w, uv_h);
     let block = extract_subblock(uv_plane, uv_w, ux, uy, uv_bsize, uv_bsize);
     let pred = predict_block_plane(&refs, uv_bsize, mode, false);
     let residual = compute_residual_block(&block, &pred);
-
-    if lossless {
-        reconstruct_block(recon_uv, uv_w, ux, uy, uv_bsize, &pred, &residual);
-        return (Vec::new(), 0, residual);
-    }
 
     if uv_bsize == 32 {
         let mut residual_arr = [0i32; 1024];
@@ -1337,6 +1393,7 @@ fn encode_block_var(
     pixels: &[u8],
     plane_w: usize,
     recon: &mut [u8],
+    ready: &mut [bool],
     x: usize,
     y: usize,
     bsize: usize,
@@ -1349,11 +1406,10 @@ fn encode_block_var(
     let refs = get_ref_pixels(recon, plane_w, x, y, bsize, right_limit, bottom_limit);
     let block = extract_subblock(pixels, plane_w, x, y, bsize, bsize);
     let mode = forced_mode.unwrap_or_else(|| select_intra_mode(&block, &refs, bsize));
-    let pred_block = predict_block(&refs, bsize, mode);
-    let residual = compute_residual_block(&block, &pred_block);
 
     if lossless {
-        reconstruct_block(recon, plane_w, x, y, bsize, &pred_block, &residual);
+        let residual =
+            lossless_block_residual(pixels, plane_w, recon, ready, x, y, bsize, mode, true);
         return EncodedBlock {
             x,
             y,
@@ -1372,6 +1428,9 @@ fn encode_block_var(
             v_residual: Vec::new(),
         };
     }
+
+    let pred_block = predict_block(&refs, bsize, mode);
+    let residual = compute_residual_block(&block, &pred_block);
 
     if bsize == 64 {
         let mut residual_arr = [0i32; 4096];
@@ -1474,6 +1533,7 @@ fn encode_partition_rd(
     pixels: &[u8],
     plane_w: usize,
     recon: &mut [u8],
+    ready: &mut [bool],
     x: usize,
     y: usize,
     bsize: usize,
@@ -1496,7 +1556,7 @@ fn encode_partition_rd(
         buf
     };
 
-    let no_split = encode_block_var(pixels, plane_w, recon, x, y, bsize, dequant, None, right_limit, bottom_limit, lossless);
+    let no_split = encode_block_var(pixels, plane_w, recon, ready, x, y, bsize, dequant, None, right_limit, bottom_limit, lossless);
     if lossless {
         return vec![no_split];
     }
@@ -1522,7 +1582,7 @@ fn encode_partition_rd(
         (x+half, y+half, x + bsize,         y + bsize),
     ];
     for &(bx, by, rl, bl) in &sub_params {
-        let sub = encode_partition_rd(pixels, plane_w, recon, bx, by, half, dequant, lambda, min_bsize, rl, bl, lossless);
+        let sub = encode_partition_rd(pixels, plane_w, recon, ready, bx, by, half, dequant, lambda, min_bsize, rl, bl, lossless);
         split_blocks.extend(sub);
     }
 
@@ -1589,6 +1649,9 @@ fn encode_frame_yuv(
     let mut recon_y = vec![0u8; w * h];
     let mut recon_u = vec![0u8; uv_w * uv_h];
     let mut recon_v = vec![0u8; uv_w * uv_h];
+    let mut ready_y = vec![false; w * h];
+    let mut ready_u = vec![false; uv_w * uv_h];
+    let mut ready_v = vec![false; uv_w * uv_h];
 
     let block_offsets: [(usize, usize); 4] = [
         (0, 0), (32, 0), (0, 32), (32, 32),
@@ -1620,7 +1683,7 @@ fn encode_frame_yuv(
                 };
 
                 let mut leaf_blocks = encode_partition_rd(
-                    y_plane, w, &mut recon_y, yx, yy, 32, params.dequant, lambda, 8,
+                    y_plane, w, &mut recon_y, &mut ready_y, yx, yy, 32, params.dequant, lambda, 8,
                     right_limit, bottom_limit, lossless,
                 );
 
@@ -1633,10 +1696,12 @@ fn encode_frame_yuv(
 
                     let uv_mode = IntraMode::DcPred;
                     let (u_levels, u_eob, u_residual) = encode_uv_subblock(
-                        u_plane, uv_w, &mut recon_u, ux, uy, uv_bsize, params.dequant, uv_mode, lossless,
+                        u_plane, uv_w, &mut recon_u, &mut ready_u, ux, uy, uv_bsize,
+                        params.dequant, uv_mode, lossless,
                     );
                     let (v_levels, v_eob, v_residual) = encode_uv_subblock(
-                        v_plane, uv_w, &mut recon_v, ux, uy, uv_bsize, params.dequant, uv_mode, lossless,
+                        v_plane, uv_w, &mut recon_v, &mut ready_v, ux, uy, uv_bsize,
+                        params.dequant, uv_mode, lossless,
                     );
 
                     block.uv_mode = uv_mode;

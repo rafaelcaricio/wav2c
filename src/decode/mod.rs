@@ -1466,6 +1466,50 @@ fn reconstruct_tu(
     }
 }
 
+fn apply_dpcm_cumulative(residuals: &mut [i32], w: usize, h: usize, vertical: bool) {
+    if vertical {
+        for col in 0..w {
+            let mut acc = 0i32;
+            for row in 0..h {
+                acc += residuals[row * w + col];
+                residuals[row * w + col] = acc;
+            }
+        }
+    } else {
+        for row in 0..h {
+            let mut acc = 0i32;
+            for col in 0..w {
+                acc += residuals[row * w + col];
+                residuals[row * w + col] = acc;
+            }
+        }
+    }
+}
+
+fn lossless_luma_residual(block: &tile::DecodedBlock, tu: &tile::TuData) -> Vec<i32> {
+    let mut residuals = transform::lossless_residual(&tu.levels, tu.eob);
+    if block.use_dpcm_y && tu.tx_size == crate::block::TxSize::Tx4x4 {
+        if block.y_mode == 1 {
+            apply_dpcm_cumulative(&mut residuals, 4, 4, true);
+        } else if block.y_mode == 2 {
+            apply_dpcm_cumulative(&mut residuals, 4, 4, false);
+        }
+    }
+    residuals
+}
+
+fn lossless_chroma_residual(block: &tile::DecodedBlock, tu: &tile::TuData) -> Vec<i32> {
+    let mut residuals = transform::lossless_residual(&tu.levels, tu.eob);
+    if block.use_dpcm_uv && tu.tx_size == crate::block::TxSize::Tx4x4 {
+        if block.uv_mode == 1 {
+            apply_dpcm_cumulative(&mut residuals, 4, 4, true);
+        } else if block.uv_mode == 2 {
+            apply_dpcm_cumulative(&mut residuals, 4, 4, false);
+        }
+    }
+    residuals
+}
+
 fn trace_uv_recon_tu(
     plane: usize,
     tu_x: usize,
@@ -1934,7 +1978,7 @@ fn reconstruct_partitioned_frame(
                         let tx = bx + tu.col_offset;
                         let ty = by + tu.row_offset;
                         let residuals = if coded_lossless {
-                            transform::lossless_residual(&tu.levels, tu.eob)
+                            lossless_luma_residual(block, tu)
                         } else {
                             transform::dequantize_and_inverse_tcq(
                                 &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
@@ -1970,7 +2014,7 @@ fn reconstruct_partitioned_frame(
                     let tx = bx + tu.col_offset;
                     let ty = by + tu.row_offset;
                     let residuals = if coded_lossless {
-                        transform::lossless_residual(&tu.levels, tu.eob)
+                        lossless_luma_residual(block, tu)
                     } else {
                         transform::dequantize_and_inverse_tcq(
                             &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
@@ -2019,7 +2063,7 @@ fn reconstruct_partitioned_frame(
                         Some(&y_ready),
                     );
                     let residuals = if coded_lossless {
-                        transform::lossless_residual(&tu.levels, tu.eob)
+                        lossless_luma_residual(block, tu)
                     } else {
                         transform::dequantize_and_inverse_tcq(
                             &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
@@ -2577,10 +2621,16 @@ fn reconstruct_partitioned_frame(
                             transform::inverse_cctx(&mut u_dq, &mut v_dq, u_tu.cctx_type);
                         }
 
-                        let u_res =
-                            transform::inverse_transform_only(&u_dq, u_tu.tx_size, u_tu.tx_type);
-                        let v_res =
-                            transform::inverse_transform_only(&v_dq, v_tu.tx_size, v_tu.tx_type);
+                        let u_res = if coded_lossless {
+                            lossless_chroma_residual(block, u_tu)
+                        } else {
+                            transform::inverse_transform_only(&u_dq, u_tu.tx_size, u_tu.tx_type)
+                        };
+                        let v_res = if coded_lossless {
+                            lossless_chroma_residual(block, v_tu)
+                        } else {
+                            transform::inverse_transform_only(&v_dq, v_tu.tx_size, v_tu.tx_type)
+                        };
 
                         let u_tu_w = u_tu.tx_size.width();
                         let u_tu_h = u_tu.tx_size.height();
@@ -2819,10 +2869,16 @@ fn reconstruct_partitioned_frame(
                         transform::inverse_cctx(&mut u_dq, &mut v_dq, u_tu.cctx_type);
                     }
 
-                    let u_res =
-                        transform::inverse_transform_only(&u_dq, u_tu.tx_size, u_tu.tx_type);
-                    let v_res =
-                        transform::inverse_transform_only(&v_dq, v_tu.tx_size, v_tu.tx_type);
+                    let u_res = if coded_lossless {
+                        lossless_chroma_residual(block, u_tu)
+                    } else {
+                        transform::inverse_transform_only(&u_dq, u_tu.tx_size, u_tu.tx_type)
+                    };
+                    let v_res = if coded_lossless {
+                        lossless_chroma_residual(block, v_tu)
+                    } else {
+                        transform::inverse_transform_only(&v_dq, v_tu.tx_size, v_tu.tx_type)
+                    };
 
                     let u_tu_w = u_tu.tx_size.width();
                     let u_tu_h = u_tu.tx_size.height();

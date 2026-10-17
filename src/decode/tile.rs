@@ -919,6 +919,8 @@ pub struct DecodedBlock {
     pub bv_col: i32,
     pub y_mode: u8,
     pub joint_y_mode: u8,
+    pub use_dpcm_y: bool,
+    pub use_dpcm_uv: bool,
     pub uv_mode: u8,
     pub mrl_index: u8,
     pub cfl_alpha_u: i8,
@@ -2082,13 +2084,13 @@ fn read_y_mode(
     y_mode_ctx: usize,
     lossless: bool,
     cdf: &mut FrameCdfContext,
-) -> (usize, Option<u8>) {
+) -> (usize, Option<u8>, bool) {
     if lossless {
         let use_dpcm = ec.decode_symbol_mut(&mut cdf.dpcm_y);
         if use_dpcm == 1 {
             let direction = ec.decode_symbol_mut(&mut cdf.dpcm_vert_horz);
             let joint = if direction == 0 { 22 } else { 50 };
-            return (0, Some(joint));
+            return (0, Some(joint), true);
         }
     }
     ec.trace_state("before_mode_set");
@@ -2102,12 +2104,13 @@ fn read_y_mode(
             ec.trace_state(&format!("after_mode_offset={}", offset));
             mode_idx += offset;
         }
-        (mode_idx as usize, None)
+        (mode_idx as usize, None, false)
     } else {
         let literal = ec.decode_literal(4) as usize;
         (
             FIRST_MODE_COUNT + (mode_set - 1) * SECOND_MODE_COUNT + literal,
             None,
+            false,
         )
     }
 }
@@ -2150,13 +2153,13 @@ fn read_uv_mode(
     enable_mhccp: bool,
     cfl_allowed_in_sdp: bool,
     cdf: &mut FrameCdfContext,
-) -> (u8, i8, i8, u8, u8) {
+) -> (u8, i8, i8, u8, u8, bool) {
     if lossless {
         let use_dpcm = ec.decode_symbol_mut(&mut cdf.dpcm_uv);
         if use_dpcm == 1 {
             let direction = ec.decode_symbol_mut(&mut cdf.dpcm_uv_vert_horz);
             let uv_mode = if direction == 0 { 1 } else { 2 };
-            return (uv_mode, 0, 0, 0, 0);
+            return (uv_mode, 0, 0, 0, 0, true);
         }
     }
     let lossless_allows_cfl = !lossless || (block_w == 4 && block_h == 4);
@@ -2200,7 +2203,7 @@ fn read_uv_mode(
             }
 
             if cfl_idx != 0 {
-                return (13, 0, 0, cfl_idx, mh_dir);
+                return (13, 0, 0, cfl_idx, mh_dir, false);
             }
 
             let joint_sign = ec.decode_symbol_mut(&mut cdf.cfl_sign);
@@ -2229,7 +2232,7 @@ fn read_uv_mode(
                 let abs_val = (alpha_v_idx + 1) as i8;
                 alpha_v_raw = if v_sign == 2 { abs_val } else { -abs_val };
             }
-            return (13, alpha_u_raw, alpha_v_raw, cfl_idx, mh_dir);
+            return (13, alpha_u_raw, alpha_v_raw, cfl_idx, mh_dir, false);
         }
     }
 
@@ -2245,7 +2248,7 @@ fn read_uv_mode(
         "after_uv_mode_idx={} mapped_uv_mode={}",
         uv_mode_idx, uv_mode
     ));
-    (uv_mode, 0, 0, 0, 0)
+    (uv_mode, 0, 0, 0, 0, false)
 }
 
 const PALETTE_MAX_SIZE: usize = 8;
@@ -3579,6 +3582,8 @@ fn decode_leaf_block(
             bv_col,
             y_mode: 0,
             joint_y_mode: 0,
+            use_dpcm_y: false,
+            use_dpcm_uv: false,
             uv_mode: 0,
             mrl_index: 0,
             cfl_alpha_u: 0,
@@ -3598,6 +3603,8 @@ fn decode_leaf_block(
     let mut fsc_mode = 0usize;
     let is_directional;
     let mut joint_y_mode = 0u8;
+    let mut use_dpcm_y = false;
+    let mut use_dpcm_uv = false;
     let mut mrl_index = 0u8;
     let mut multi_line_mrl = 0u8;
 
@@ -3657,7 +3664,8 @@ fn decode_leaf_block(
                 mi_cdf[7]
             );
         }
-        let (mode_idx, dpcm_joint) = read_y_mode(ec, y_mode_ctx, cfg.coded_lossless, cdf);
+        let (mode_idx, dpcm_joint, dpcm_y) = read_y_mode(ec, y_mode_ctx, cfg.coded_lossless, cdf);
+        use_dpcm_y = dpcm_y;
 
         let y_intra_mode_list = build_y_intra_mode_list(width, height, left_joint, above_joint);
         joint_y_mode = dpcm_joint.unwrap_or_else(|| y_intra_mode_list[mode_idx]);
@@ -3748,7 +3756,7 @@ fn decode_leaf_block(
             ));
         }
         let cfl_ctx = mi.cfl_ctx(chroma_x, chroma_y);
-        let (mode, au, av, ci, md) = read_uv_mode(
+        let (mode, au, av, ci, md, dpcm_uv) = read_uv_mode(
             ec,
             y_mode,
             cfg.coded_lossless,
@@ -3761,6 +3769,7 @@ fn decode_leaf_block(
             cdf,
         );
         uv_mode = mode;
+        use_dpcm_uv = dpcm_uv;
         cfl_alpha_u = au;
         cfl_alpha_v = av;
         cfl_idx = ci;
@@ -3931,6 +3940,8 @@ fn decode_leaf_block(
         bv_col: 0,
         y_mode,
         joint_y_mode,
+        use_dpcm_y,
+        use_dpcm_uv,
         uv_mode,
         mrl_index,
         cfl_alpha_u,
