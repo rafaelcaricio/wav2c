@@ -72,6 +72,9 @@ pub struct FrameParams<'a> {
     pub qm_y: [u8; 4],
     pub qm_u: [u8; 4],
     pub qm_v: [u8; 4],
+    pub deblocking_enabled: bool,
+    pub gdf_enabled: bool,
+    pub restoration_enabled: bool,
 }
 
 pub const CCSO_BAND_NUM: usize = 64;
@@ -238,7 +241,7 @@ fn parse_quantization(r: &mut BitReader, seq: &SequenceParams) -> QuantParams {
     }
 }
 
-fn parse_deblocking(r: &mut BitReader, df_par_bits: u32) {
+fn parse_deblocking(r: &mut BitReader, df_par_bits: u32) -> bool {
     let apply0 = r.read_bit();
     let apply1 = r.read_bit();
 
@@ -272,6 +275,7 @@ fn parse_deblocking(r: &mut BitReader, df_par_bits: u32) {
             let _delta = r.read_literal(df_par_bits as u8);
         }
     }
+    apply0 || apply1 || apply_u || apply_v
 }
 
 fn parse_cdef_params(r: &mut BitReader, enable_cdef_on_skip_txfm: u32) -> u32 {
@@ -472,11 +476,14 @@ fn parse_frame_header_sph0<'a>(
         allow_parity_hiding = r.read_bit();
     }
 
+    let mut deblocking_enabled = false;
     if !coded_lossless {
-        parse_deblocking(&mut r, seq.df_par_bits);
+        deblocking_enabled = parse_deblocking(&mut r, seq.df_par_bits);
     }
 
+    let mut gdf_enabled = false;
     if !coded_lossless && seq.enable_gdf {
+        gdf_enabled = true;
         let gdf_mode = r.read_bit();
         if gdf_mode {
             let gdf_block_num = {
@@ -501,9 +508,11 @@ fn parse_frame_header_sph0<'a>(
         }
     }
 
+    let mut restoration_enabled = false;
     if !coded_lossless && seq.enable_restoration {
         for plane in 0..3 {
-            let _restoration_type = read_uniform(&mut r, seq.lr_frame_tools_count[plane]);
+            let restoration_type = read_uniform(&mut r, seq.lr_frame_tools_count[plane]);
+            restoration_enabled |= restoration_type != 0;
         }
     }
 
@@ -565,6 +574,9 @@ fn parse_frame_header_sph0<'a>(
         qm_y: qm.qm_y,
         qm_u: qm.qm_u,
         qm_v: qm.qm_v,
+        deblocking_enabled,
+        gdf_enabled,
+        restoration_enabled,
     })
 }
 
@@ -639,11 +651,14 @@ fn parse_frame_header_sph1<'a>(
         allow_parity_hiding = r.read_bit();
     }
 
+    let mut deblocking_enabled = false;
     if !coded_lossless {
-        parse_deblocking(&mut r, seq.df_par_bits);
+        deblocking_enabled = parse_deblocking(&mut r, seq.df_par_bits);
     }
 
+    let mut gdf_enabled = false;
     if !coded_lossless && seq.enable_gdf {
+        gdf_enabled = true;
         let gdf_block_num = {
             let gdf_block_size = seq.sb_size;
             ((seq.width + gdf_block_size - 1) / gdf_block_size)
@@ -663,9 +678,11 @@ fn parse_frame_header_sph1<'a>(
         nb_cdef_strengths = parse_cdef_params(&mut r, seq.enable_cdef_on_skip_txfm);
     }
 
+    let mut restoration_enabled = false;
     if !coded_lossless && seq.enable_restoration {
         for plane in 0..3 {
-            let _restoration_type = read_uniform(&mut r, seq.lr_frame_tools_count[plane]);
+            let restoration_type = read_uniform(&mut r, seq.lr_frame_tools_count[plane]);
+            restoration_enabled |= restoration_type != 0;
         }
     }
 
@@ -722,6 +739,9 @@ fn parse_frame_header_sph1<'a>(
         qm_y: qm.qm_y,
         qm_u: qm.qm_u,
         qm_v: qm.qm_v,
+        deblocking_enabled,
+        gdf_enabled,
+        restoration_enabled,
     })
 }
 

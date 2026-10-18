@@ -3,6 +3,7 @@ use crate::block::{
 };
 use crate::cdf_context::FrameCdfContext;
 use crate::cdf_tables::*;
+use crate::decode::DecodeError;
 use crate::decode::entropy::DaalaDecoder;
 use crate::scan::{TxClass, get_scan_for_tx, get_tx_class};
 use std::collections::{HashSet, VecDeque};
@@ -233,6 +234,7 @@ struct TileState {
     sdp_luma_depth: usize,
     cfl_allowed_in_sdp: bool,
     sdp_luma_partition_for_cfl: Option<PartitionType>,
+    unsupported: Option<&'static str>,
 }
 
 struct IntrabcRefMvBank {
@@ -890,6 +892,7 @@ pub struct TuData {
     pub row_offset: usize,
     pub col_offset: usize,
     pub cctx_type: u8,
+    pub unsupported: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1192,13 +1195,13 @@ fn read_sec_tx_type(
     y_mode: u8,
     eob: usize,
     cdf: &mut FrameCdfContext,
-) {
+) -> bool {
     if primary_tx_type != DCT_DCT && primary_tx_type != ADST_ADST {
-        return;
+        return false;
     }
 
     if y_mode >= PAETH_PRED {
-        return;
+        return false;
     }
 
     let width = tx_size.width();
@@ -1214,13 +1217,13 @@ fn read_sec_tx_type(
     } else if width >= 8 && height >= 8 {
         (3, IST_ADST_NZ_CNT)
     } else {
-        return;
+        return false;
     };
 
     let _ = st_size_class;
 
     if eob > eob_limit {
-        return;
+        return false;
     }
 
     let stx_idx = square_tx_size.min(4);
@@ -1233,6 +1236,7 @@ fn read_sec_tx_type(
             let _stx_set = ec.decode_symbol_mut(&mut cdf.most_probable_stx_set);
         }
     }
+    stx_flag > 0
 }
 
 fn get_padded_idx_left(idx: usize, bwl: u32, top_off: usize) -> usize {
@@ -1420,6 +1424,7 @@ fn decode_coeff_tu_fsc(
             row_offset: 0,
             col_offset: 0,
             cctx_type: 0,
+            unsupported: Some("frequency selective coding"),
         };
     }
 
@@ -1442,6 +1447,7 @@ fn decode_coeff_tu_fsc(
         row_offset: 0,
         col_offset: 0,
         cctx_type: 0,
+        unsupported: Some("frequency selective coding"),
     }
 }
 
@@ -1507,6 +1513,7 @@ fn decode_coeff_tu(
             row_offset: 0,
             col_offset: 0,
             cctx_type: 0,
+            unsupported: None,
         };
     }
 
@@ -1546,6 +1553,7 @@ fn decode_coeff_tu(
             row_offset: 0,
             col_offset: 0,
             cctx_type: 0,
+            unsupported: Some("frequency selective coding"),
         };
     }
 
@@ -1563,9 +1571,12 @@ fn decode_coeff_tu(
 
     let padded_stride = width + TX_PAD_HOR;
     let padded_height = height + 4;
-    if plane == 0 && cfg.enable_ist && eob > 1 && fsc_mode == 0 && !inter_block {
-        read_sec_tx_type(ec, tx_size, tx_type, pred_mode, eob as usize, cdf);
-    }
+    let sec_tx_used = plane == 0
+        && cfg.enable_ist
+        && eob > 1
+        && fsc_mode == 0
+        && !inter_block
+        && read_sec_tx_type(ec, tx_size, tx_type, pred_mode, eob as usize, cdf);
 
     let tcq_active = cfg.tcq_mode && plane == 0 && tx_class == TxClass::TwoD;
     let mut tcq_state = tcq_init_state(tcq_active);
@@ -1855,6 +1866,7 @@ fn decode_coeff_tu(
         row_offset: 0,
         col_offset: 0,
         cctx_type: cctx_type_val,
+        unsupported: sec_tx_used.then_some("secondary transform"),
     }
 }
 
@@ -1946,6 +1958,9 @@ fn decode_block_tus(
             cfg,
             cdf,
         );
+        if let Some(feature) = tu.unsupported {
+            state.unsupported.get_or_insert(feature);
+        }
         tu.row_offset = *row_off;
         tu.col_offset = *col_off;
 
@@ -5218,6 +5233,7 @@ pub fn decode_tile_data_partitioned_opts(
             ..TileDecodeConfig::default()
         },
     )
+    .expect("tile data")
 }
 
 pub fn decode_tile_data_partitioned_cfg(
@@ -5227,7 +5243,7 @@ pub fn decode_tile_data_partitioned_cfg(
     sb_size: usize,
     base_qindex: u8,
     cfg: &TileDecodeConfig,
-) -> Vec<DecodedBlock> {
+) -> Result<Vec<DecodedBlock>, DecodeError> {
     let mut ec = DaalaDecoder::new(data);
     let mut cdf = FrameCdfContext::new_with_qindex(base_qindex);
     let mut mi = ModeInfoGrid::new(width, height, cfg.sb_size);
@@ -5257,6 +5273,7 @@ pub fn decode_tile_data_partitioned_cfg(
         sdp_luma_depth: 0,
         cfl_allowed_in_sdp: true,
         sdp_luma_partition_for_cfl: None,
+        unsupported: None,
     };
 
     let sb_cols = (width + sb_size - 1) / sb_size;
@@ -5295,7 +5312,10 @@ pub fn decode_tile_data_partitioned_cfg(
         }
     }
 
-    blocks
+    if let Some(feature) = state.unsupported {
+        return Err(DecodeError::UnsupportedFeature(feature));
+    }
+    Ok(blocks)
 }
 
 #[cfg(test)]

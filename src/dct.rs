@@ -890,7 +890,7 @@ pub fn inverse_dct2_16x16(coeffs: &[i32; 256]) -> [i32; 256] {
                 sum +=
                     FWD_DCT2_16[freq_row][spatial_row] as i64 * coeffs[freq_row * 16 + col] as i64;
             }
-            temp[spatial_row][col] = round_shift(sum, 6);
+            temp[spatial_row][col] = round_shift(sum, 6).clamp(-32768, 32767);
         }
     }
 

@@ -107,6 +107,14 @@ impl Decoder {
                 continue;
             }
             let fp = frame::parse_frame_header(raw_obu.payload, &seq)?;
+            if fp.deblocking_enabled
+                || fp.gdf_enabled
+                || fp.cdef_frame_enable
+                || fp.restoration_enabled
+                || fp.ccso_frame_enable
+            {
+                return Err(DecodeError::UnsupportedFeature("in-loop filters"));
+            }
             let dequant = crate::encode::ac_qlookup(fp.base_qindex);
             let uv_dequant = crate::encode::ac_qlookup(
                 (fp.base_qindex as i32 + fp.u_ac_delta_q).clamp(0, 255) as u8,
@@ -142,7 +150,8 @@ impl Decoder {
             };
 
             let (y_plane, u_plane, v_plane) = if !fp.tile_data.is_empty() {
-                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                    || -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), DecodeError> {
                     let blocks = tile::decode_tile_data_partitioned_cfg(
                         fp.tile_data,
                         seq.width as usize,
@@ -150,8 +159,8 @@ impl Decoder {
                         seq.sb_size as usize,
                         fp.base_qindex,
                         &tile_cfg,
-                    );
-                    reconstruct_partitioned_frame(
+                    )?;
+                    Ok(reconstruct_partitioned_frame(
                         &blocks,
                         seq.width,
                         seq.height,
@@ -169,9 +178,9 @@ impl Decoder {
                             [qm::NUM_QM_LEVELS as u8 - 1; 3]
                         },
                         &fp.ccso_params,
-                    )
+                    ))
                 }))
-                .map_err(|_| DecodeError::UnsupportedFeature("tile syntax"))?;
+                .map_err(|_| DecodeError::UnsupportedFeature("tile syntax"))??;
                 decoded
             } else {
                 gray_frame(seq.width, seq.height)
@@ -2564,21 +2573,61 @@ fn reconstruct_partitioned_frame(
                         let u_res = crate::dct::inverse_dct2_16x16(&u_dq_arr).to_vec();
                         let v_res = crate::dct::inverse_dct2_16x16(&v_dq_arr).to_vec();
 
-                        let u_pred = crate::encode::predict_intra_block_uv(
+                        let uv_pred_mode = predict::PredictionMode::from_u8(block.uv_mode);
+                        let (_, y_angle_delta) =
+                            predict::decode_prediction_mode(block.joint_y_mode);
+                        let uv_angle_delta = if block.uv_mode == block.y_mode
+                            && (1..=8).contains(&block.uv_mode)
+                        {
+                            y_angle_delta
+                        } else {
+                            0
+                        };
+                        let (u_above_filter_type, u_left_filter_type) =
+                            neighbor_filter_types(&uv_filter, uv_w, uv_bx, uv_by);
+                        let u_pred = predict::predict_intra_with_control_and_availability(
                             &u_plane,
                             uv_w,
                             uv_bx,
                             uv_by,
                             uv_bw,
-                            uv_mode,
+                            uv_bh,
+                            uv_pred_mode,
+                            uv_angle_delta,
+                            0,
+                            0,
+                            predict::IntraPredictControl {
+                                plane: 1,
+                                enable_ibp,
+                                is_cfl: false,
+                                above_filter_type: u_above_filter_type,
+                                left_filter_type: u_left_filter_type,
+                                disable_edge_filter,
+                            },
+                            Some(&u_ready),
                         );
-                        let v_pred = crate::encode::predict_intra_block_uv(
+                        let (v_above_filter_type, v_left_filter_type) =
+                            neighbor_filter_types(&uv_filter, uv_w, uv_bx, uv_by);
+                        let v_pred = predict::predict_intra_with_control_and_availability(
                             &v_plane,
                             uv_w,
                             uv_bx,
                             uv_by,
                             uv_bw,
-                            uv_mode,
+                            uv_bh,
+                            uv_pred_mode,
+                            uv_angle_delta,
+                            0,
+                            0,
+                            predict::IntraPredictControl {
+                                plane: 2,
+                                enable_ibp,
+                                is_cfl: false,
+                                above_filter_type: v_above_filter_type,
+                                left_filter_type: v_left_filter_type,
+                                disable_edge_filter,
+                            },
+                            Some(&v_ready),
                         );
 
                         reconstruct_tu(
@@ -3301,6 +3350,28 @@ mod tests {
         None
     }
 
+    fn fnv1a_hash(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in bytes {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    fn fixture_decode_hash(name: &str) -> u64 {
+        let path = format!("tests/fixtures/{}.obu", name);
+        let data = std::fs::read(&path).unwrap();
+        let frames = Decoder::decode_all(&data).unwrap();
+        let mut planes = Vec::new();
+        for frame in &frames {
+            planes.extend_from_slice(&frame.y);
+            planes.extend_from_slice(&frame.u);
+            planes.extend_from_slice(&frame.v);
+        }
+        fnv1a_hash(&planes)
+    }
+
     fn sequence_obu<'a, 'b>(obus: &'a [obu::RawObu<'b>]) -> &'a obu::RawObu<'b> {
         obus.iter()
             .find(|o| o.obu_type == 1)
@@ -3608,7 +3679,8 @@ mod tests {
             seq.sb_size as usize,
             fp.base_qindex,
             &tile_cfg,
-        );
+        )
+        .unwrap();
 
         for (i, block) in blocks.iter().enumerate() {
             eprintln!(
@@ -3665,7 +3737,8 @@ mod tests {
             seq.sb_size as usize,
             fp.base_qindex,
             &tile_cfg,
-        );
+        )
+        .unwrap();
         let uv_dequant = crate::encode::ac_qlookup(
             (fp.base_qindex as i32 + fp.u_ac_delta_q).clamp(0, 255) as u8,
         );
@@ -3769,6 +3842,38 @@ mod tests {
     }
 
     #[test]
+    fn lossless_reference_fixture_is_bit_exact() {
+        assert_eq!(
+            fixture_decode_hash("avmenc_lossless_128x128"),
+            0x4a0a360399574988
+        );
+    }
+
+    #[test]
+    fn parity_hiding_reference_fixture_is_bit_exact() {
+        assert_eq!(
+            fixture_decode_hash("avmenc_parity_128x128"),
+            0x47fb8b4a05dbfe2b
+        );
+    }
+
+    #[test]
+    fn quant_matrix_reference_fixture_is_bit_exact() {
+        assert_eq!(
+            fixture_decode_hash("avmenc_qm_128x128"),
+            0xaf8ff1013db75d62
+        );
+    }
+
+    #[test]
+    fn mrls_reference_fixture_is_bit_exact() {
+        assert_eq!(
+            fixture_decode_hash("avmenc_mrls_128x128"),
+            0xc329e88c199cd4f2
+        );
+    }
+
+    #[test]
     fn decode_avmenc_128x128_q30() {
         let data = std::fs::read("tests/fixtures/avmenc_128x128_q30.obu").unwrap();
         let obus = obu::parse_obus(&data);
@@ -3859,7 +3964,8 @@ mod tests {
             seq.sb_size as usize,
             fp.base_qindex,
             &tile_cfg,
-        );
+        )
+        .unwrap();
 
         for (i, block) in blocks.iter().enumerate() {
             let y_eob: u32 = block.y_tu.iter().map(|t| t.eob as u32).sum();
@@ -4161,7 +4267,8 @@ mod tests {
             seq.sb_size as usize,
             fp.base_qindex,
             &tile_cfg,
-        );
+        )
+        .unwrap();
         for (i, block) in blocks.iter().enumerate().take(15) {
             let y_eob: u32 = block.y_tu.iter().map(|t| t.eob as u32).sum();
             eprintln!(
@@ -4400,7 +4507,8 @@ mod tests {
             seq.sb_size as usize,
             fp.base_qindex,
             &tile_cfg,
-        );
+        )
+        .unwrap();
 
         let mode_name = |joint: u8| -> &str {
             let (_mode, _delta) = predict::decode_prediction_mode(joint);
