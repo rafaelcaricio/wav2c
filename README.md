@@ -75,9 +75,14 @@ Stereoscopic pair:
 
 ```sh
 av2codec left.y4m right.y4m stereo.obu --multiview --qindex 0
-avmdec --codec=av2 --i420 --num-streams=2 -o views.yuv stereo.obu
+avmdec --codec=av2 --num-streams=2 -o views.y4m stereo.obu
 av2codec left.y4m right.y4m left.obu --multiview --extract-layer 0
 ```
+
+A full end-to-end demo (stereo pair and three-view conference layout, encode,
+per-view decode with `avmdec`, PSNR and atlas snapshots) is in
+[the multiview demo report](docs/reports/2026-10-18-multiview-encoder-demo.md);
+run it with `python3 tools/multiview_demo.py --sweep`.
 
 #### Decoding
 
