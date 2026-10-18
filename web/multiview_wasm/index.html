@@ -49,8 +49,8 @@
   .layers { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; pointer-events: none; }
   .layers span { position: relative; border: 1px solid rgba(198,255,61,.08); }
   .layers b { position: absolute; left: 8px; top: 8px; padding: 5px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; letter-spacing: .18em; text-transform: uppercase; color: rgba(232,241,234,.86); background: rgba(6,9,7,.66); border: 1px solid rgba(198,255,61,.16); }
-  .layers span.camera { border-color: rgba(255,176,46,.4); }
-  .layers span.camera b { color: var(--amber); border-color: rgba(255,176,46,.5); }
+  .layers span.layer-camera { border-color: rgba(255,176,46,.4); }
+  .layers span.layer-camera b { color: var(--amber); border-color: rgba(255,176,46,.5); }
   .caption { margin: 12px 0 0; font-size: 13.5px; line-height: 1.65; color: var(--muted); max-width: 62ch; }
   .caption strong { color: var(--ink); font-weight: 600; }
   .rail { display: grid; gap: clamp(14px, 1.6vw, 22px); }
@@ -115,7 +115,7 @@
           <span><b>L0 · pitch</b></span>
           <span><b>L1 · court</b></span>
           <span><b>L2 · ring</b></span>
-          <span class="camera"><b>L3 · your camera</b></span>
+          <span class="layer-camera"><b>L3 · your camera</b></span>
         </div>
       </div>
       <p class="caption">
