@@ -54,4 +54,7 @@ for tool in parity:parity-hiding qm:qm mrls:mrls; do
         -o "$ROOT/tests/fixtures/avmenc_${name}_128x128.obu" "$WORK/gradient_128x128.y4m"
 done
 
+avmenc $TOOLS_OFF --enable-lcr=1 --enable-atlas=1 --end-usage=q --cq-level=30 -w 128 -h 128 \
+    -o "$ROOT/tests/fixtures/avmenc_lcr_atlas_128x128.obu" "$WORK/gradient_128x128.y4m"
+
 rm -rf "$WORK"

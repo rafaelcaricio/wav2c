@@ -39,10 +39,15 @@ Supported on the intra path (profile 0, 8-bit 4:2:0):
 | Lossless (inverse WHT + DPCM) | Supported |
 | Secondary transform (IST), DIP, frequency-selective coefficient coding | **Rejected explicitly** (fail closed) |
 | CDEF, GDF, restoration, CCSO, deblocking | **Rejected explicitly** (fail closed) |
+| Layer config record, atlas segment, operating point set, MSDO, metadata OBUs | Parsed and skipped (single extended layer, no composition) |
 | Inter prediction | Not implemented |
 
 Unsupported tools return `DecodeError::UnsupportedFeature` instead of silently
-producing incorrect pixels.
+producing incorrect pixels. Multiview and atlas-tiled content is described in
+[the layer composition report](docs/reports/2026-10-18-multiview-atlas-layer-composition.md):
+each view is an independent extended layer, and composition is informative
+(Annex D), so the decoder accepts the metadata of such streams but does not
+render them.
 
 ## Usage
 
@@ -208,6 +213,7 @@ A sequence header OBU is prepended once at the start of the bitstream.
 - Fixed QP only (no rate control)
 - 8-bit 4:2:0 only
 - No deblocking filters (CDEF/GDF) — expect visible block boundaries at higher quantization
+- One extended layer: layer configuration and atlas metadata are accepted but not interpreted, and there is no multiview composition
 
 ## Testing
 

@@ -28,6 +28,7 @@ decoded output is asserted bit-exactly in the unit tests:
 | `avmenc_parity_128x128.obu` | parity hiding |
 | `avmenc_qm_128x128.obu` | quant matrices |
 | `avmenc_mrls_128x128.obu` | multi-line MRL |
+| `avmenc_lcr_atlas_128x128.obu` | layer configuration record + atlas segment OBUs |
 
 Regenerate the reference bitstreams with
 `tools/regenerate_avmenc_fixtures.sh` (set `AVMENC` to the reference encoder

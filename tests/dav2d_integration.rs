@@ -1,6 +1,9 @@
 mod common;
 
-use common::{avmdec_available, dav2d_available, decode_with_avmdec, decode_with_dav2d};
+use common::{
+    avmdec_available, dav2d_available, decode_with_avmdec, decode_with_dav2d,
+    decode_with_dav2d_demuxer,
+};
 
 fn fixture_path(name: &str) -> String {
     format!("tests/fixtures/{}.obu", name)
@@ -57,6 +60,30 @@ fn internal_decoder_matches_reference_decoders() {
         assert_eq!(ours, avm, "{name} internal decoder differs from avmdec");
         assert_eq!(ours, dav, "{name} internal decoder differs from dav2d");
     }
+}
+
+#[test]
+fn layer_metadata_fixture_matches_reference_decoders() {
+    if !avmdec_available() || !dav2d_available() {
+        eprintln!("SKIP: avmdec or dav2d not found");
+        return;
+    }
+
+    let name = "avmenc_lcr_atlas_128x128";
+    let obu = fixture_path(name);
+    let data = std::fs::read(&obu).unwrap();
+    let frames = av2codec::Decoder::decode_all(&data).unwrap();
+    let mut ours = Vec::new();
+    for frame in &frames {
+        ours.extend_from_slice(&frame.y);
+        ours.extend_from_slice(&frame.u);
+        ours.extend_from_slice(&frame.v);
+    }
+
+    let avm = decode_with_avmdec(&obu, &format!("/tmp/{name}_avm.yuv"));
+    let dav = decode_with_dav2d_demuxer(&obu, &format!("/tmp/{name}_dav.yuv"), "section5");
+    assert_eq!(ours, avm, "{name} internal decoder differs from avmdec");
+    assert_eq!(ours, dav, "{name} internal decoder differs from dav2d");
 }
 
 #[test]

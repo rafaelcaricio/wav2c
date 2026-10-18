@@ -2543,7 +2543,6 @@ fn reconstruct_partitioned_frame(
                         && block.v_tu[0].tx_size.height() == uv_bh;
 
                     if exact_uv_single_tu {
-                        let uv_mode = crate::encode::IntraMode::from_av2(block.uv_mode);
                         let u_tu = &block.u_tu[0];
                         let v_tu = &block.v_tu[0];
 
@@ -3871,6 +3870,24 @@ mod tests {
             fixture_decode_hash("avmenc_mrls_128x128"),
             0xc329e88c199cd4f2
         );
+    }
+
+    #[test]
+    fn layer_metadata_fixture_is_bit_exact() {
+        assert_eq!(
+            fixture_decode_hash("avmenc_lcr_atlas_128x128"),
+            0x908d9dfbe2e6bb67
+        );
+    }
+
+    #[test]
+    fn layer_metadata_obus_do_not_change_decoded_output() {
+        let data = std::fs::read("tests/fixtures/avmenc_lcr_atlas_128x128.obu").unwrap();
+        let obus = obu::parse_obus(&data);
+        let types: Vec<u8> = obus.iter().map(|obu| obu.obu_type).collect();
+        assert_eq!(types, vec![2, 16, 17, 1, 4]);
+        assert!(obus.iter().all(|obu| obu.obu_xlayer_id == 0));
+        assert!(obus.iter().all(|obu| obu.obu_mlayer_id == 0));
     }
 
     #[test]

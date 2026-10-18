@@ -78,6 +78,24 @@ pub fn avmdec_available() -> bool {
     avmdec_path().is_some()
 }
 
+pub fn decode_with_dav2d_demuxer(obu_path: &str, out_path: &str, demuxer: &str) -> Vec<u8> {
+    let dav2d = dav2d_path().expect("dav2d not found");
+    let output = Command::new(dav2d)
+        .args([
+            "--demuxer", demuxer, "-i", obu_path, "-o", out_path, "--muxer", "yuv",
+        ])
+        .output()
+        .expect("failed to run dav2d");
+
+    assert!(
+        output.status.success(),
+        "dav2d failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::read(out_path).unwrap()
+}
+
 pub fn decode_with_avmdec(obu_path: &str, out_path: &str) -> Vec<u8> {
     let avmdec = avmdec_path().expect("avmdec not found");
     let output = Command::new(avmdec)
