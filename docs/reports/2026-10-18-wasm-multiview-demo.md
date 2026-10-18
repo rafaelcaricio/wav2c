@@ -6,8 +6,8 @@ Single-page demo: <http://100.105.22.91/av2-multiview/> (on this machine also
 
 ## What runs in the page
 
-`web/multiview_wasm/index.html` plus `av2codec.wasm` (717 KB, built from this
-crate with `tools/build_wasm_demo.sh`). No server is involved in the codec path:
+`demos/wasm-multiview/index.html` plus `av2codec.wasm` (717 KB, built from this
+crate with `demos/wasm-multiview/build.sh`). No server is involved in the codec path:
 
 1. Three canvas-rendered sports feeds (pitch, court, ring) and the camera are
    cropped to 320x192 RGBA.
@@ -49,7 +49,7 @@ replaces that call (and composition stays in JS either way).
 
 ## Slides
 
-`web/slides/index.html`, three slides, arrow keys/space to navigate, QR code on
+`demos/slides/index.html`, three slides, arrow keys/space to navigate, QR code on
 the last slide pointing at the hosted page. Camera access needs a secure origin:
 `localhost` works; over the tailnet IP the page runs but the browser blocks
 `getUserMedia` until the origin is HTTPS (port-forward or TLS proxy).
@@ -69,13 +69,13 @@ headers; they do not affect camera access.
 Fix it by serving the demo over TLS:
 
 ```sh
-tools/serve_demo_tls.sh            # PORT=9090 by default
+demos/serve_tls.sh            # PORT=9090 by default
 # then open https://192.168.1.94:9090/ and accept the self-signed certificate
 ```
 
 The script creates a self-signed certificate whose SANs cover `localhost`, every
 local IPv4 address and the machine's other addresses, and serves
-`web/multiview_wasm`. After accepting the certificate warning the origin is
+`demos/wasm-multiview`. After accepting the certificate warning the origin is
 secure and the camera works. Alternatives: forward the port over SSH so the
 origin is `http://localhost:9090`, or start Chrome with
 `--unsafely-treat-insecure-origin-as-secure=http://192.168.1.94:9090` (desktop

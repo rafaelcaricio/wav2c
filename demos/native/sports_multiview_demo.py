@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PIL import Image
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 VIEW_WIDTH = 640
 VIEW_HEIGHT = 384
 COLUMNS = 2

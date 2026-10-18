@@ -7,8 +7,8 @@ with `av2codec` as extended layer 3 next to three looping sports clips, decodes
 the multistream again and composes the 1280x768 canvas that the page displays.
 
 ```sh
-cargo build --release --bin av2codec_live
-./target/release/av2codec_live --port 8090
+cargo build --release --bin av2codec-live
+./target/release/av2codec-live --port 8090
 # open http://localhost:8090/ and click "Enable camera"
 ```
 
@@ -23,7 +23,7 @@ clips are generated with FFmpeg into `target/demo/live`.
 ## Architecture
 
 ```
-browser                                   local server (av2codec_live)
+browser                                   local server (av2codec-live)
 ───────                                   ────────────────────────────
 getUserMedia ──► canvas 640x384
                 ──► RGBA POST /frame ────► RGBA → YUV420
@@ -61,7 +61,7 @@ The server binds to `127.0.0.1` by default. To reach the page from another
 device on the network, bind all interfaces:
 
 ```sh
-./target/release/av2codec_live --port 8090 --bind 0.0.0.0
+./target/release/av2codec-live --port 8090 --bind 0.0.0.0
 ```
 
 IPv6 literals work as well (`--bind ::`, `--bind ::1`). Note that browsers only

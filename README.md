@@ -4,6 +4,17 @@ A clean-room AV2 video encoder and decoder written in pure safe Rust.
 
 av2codec encodes raw YUV video into [AV2 (AOM Video 2)](https://aomedia.org/) bitstreams and decodes them back. Encoded bitstreams are compatible with the reference [avmdec](https://gitlab.com/AOMediaCodec/avm) decoder. No unsafe code, no C dependencies, no assembly — just Rust.
 
+## Repository layout
+
+- `src/` — the codec: encoder, decoder, bitstream writers and the two core
+  command-line tools (`av2codec`, `av2codec_decode`).
+- `demos/` — self-contained demos built on the public API: a browser WASM
+  encoder/decoder, a native live-camera server, native multiview scripts and a
+  three-slide deck. See [demos/README.md](demos/README.md).
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the codec and each demo work.
+
+The demos never contain bitstream logic; the codec never depends on them.
+
 ## Quick start
 
 ```sh
@@ -81,25 +92,19 @@ avmdec --codec=av2 --num-streams=2 -o views.y4m stereo.obu
 av2codec left.y4m right.y4m left.obu --multiview --extract-layer 0
 ```
 
-Two end-to-end demos are available:
+Four demos exercise the multiview encoder:
 
-- [multiview demo](docs/reports/2026-10-18-multiview-encoder-demo.md): stereo
-  pair and three-view conference layout, per-view PSNR and atlas snapshots;
-  `python3 tools/multiview_demo.py --sweep`.
-- [sports multiview wall](docs/reports/2026-10-18-sports-multiview-demo.md):
-  four sports clips in a 2x2 atlas, decoded together and composed into one
-  1280x768 canvas with realtime encode measurements;
-  `python3 tools/sports_multiview_demo.py`.
-- [in-browser WASM demo](docs/reports/2026-10-18-wasm-multiview-demo.md) and
-  [three slides](web/slides/index.html): the encoder and decoder compiled to
-  wasm32 run in the page, with a QR code on the last slide;
-  `tools/build_wasm_demo.sh` then `tools/serve_demo_tls.sh` and open
-  `https://<lan-ip>:9090/` (camera capture needs HTTPS or localhost).
-- [live camera multiview](docs/reports/2026-10-18-live-camera-multiview-demo.md):
-  a web page asks for camera access and streams the camera into layer 3 of a
-  2x2 AV2 multistream, decoded and composed back into the page at 15 fps;
-  `./target/release/av2codec_live --port 8090` (add `--bind 0.0.0.0` to
-  listen on all interfaces) then open <http://localhost:8090/>.
+| Demo | Run | Report |
+|---|---|---|
+| Browser WASM (encoder + decoder in the tab) | `demos/wasm-multiview/build.sh` then `demos/serve_tls.sh` | [report](docs/reports/2026-10-18-wasm-multiview-demo.md) |
+| Live camera into a 2×2 multistream | `cargo run -p av2codec-live --release -- --port 8090` | [report](docs/reports/2026-10-18-live-camera-multiview-demo.md) |
+| Stereo + conference layouts, PSNR, atlases | `python3 demos/native/multiview_demo.py --sweep` | [report](docs/reports/2026-10-18-multiview-encoder-demo.md) |
+| Four-clip sports wall, composed MP4, realtime metrics | `python3 demos/native/sports_multiview_demo.py` | [report](docs/reports/2026-10-18-sports-multiview-demo.md) |
+
+A three-slide deck with a QR code for the hosted WASM demo lives in
+[demos/slides/](demos/slides/index.html). Setup details, requirements and
+troubleshooting (including camera access needing HTTPS) are in
+[demos/README.md](demos/README.md).
 
 #### Decoding
 
@@ -341,6 +346,13 @@ See:
 ## Project structure
 
 ```
+ARCHITECTURE.md       Codec and demo architecture overview
+demos/                Self-contained demos (workspace members + scripts)
+  wasm-multiview/       wasm32 FFI crate, page, build and hosting helpers
+  live-camera/          native camera server binary crate
+  native/               Python multiview and sports-wall demos
+  slides/               three-slide deck and QR code
+  serve_tls.sh          HTTPS static server for the WASM demo
 src/
   lib.rs              Crate root, module declarations, re-exports
   encode.rs           Streaming Encoder, batch API, quantization math

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+DEMO_ROOT=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$DEMO_ROOT/.." && pwd)
 PORT=${PORT:-9090}
-DIR=${DIR:-$ROOT/web/multiview_wasm}
+DIR=${DIR:-$DEMO_ROOT/wasm-multiview}
 CERT_DIR=${CERT_DIR:-$ROOT/target/demo/tls}
 mkdir -p "$CERT_DIR"
 

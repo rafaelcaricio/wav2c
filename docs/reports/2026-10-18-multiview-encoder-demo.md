@@ -9,7 +9,7 @@ Run it with:
 
 ```sh
 cargo build --release --bin av2codec
-python3 tools/multiview_demo.py --sweep
+python3 demos/native/multiview_demo.py --sweep
 ```
 
 The script writes bitstreams, per-layer decodes, PNG snapshots and a

@@ -12,8 +12,6 @@ pub mod multiview;
 pub mod entropy;
 pub mod scan;
 pub mod tile;
-#[allow(unsafe_code)]
-pub mod wasm;
 pub mod y4m;
 
 pub use decode::{DecodeError, DecodedFrame, Decoder};

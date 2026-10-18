@@ -19,7 +19,7 @@ const COLUMNS: u8 = 2;
 const VIEW_COUNT: usize = 4;
 const CANVAS_WIDTH: u32 = VIEW_WIDTH * 2;
 const CANVAS_HEIGHT: u32 = VIEW_HEIGHT * 2;
-const PAGE: &str = include_str!("live_page.html");
+const PAGE: &str = include_str!("page.html");
 const FAVICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0b0f0d"/><path d="M6 24 16 7l10 17h-5l-5-9-5 9z" fill="#c6ff3d"/></svg>"##;
 
 type Frame = (Vec<u8>, Vec<u8>, Vec<u8>);
@@ -98,7 +98,7 @@ fn main() {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: av2codec_live [--port N] [--bind ADDR] [--fps N] [--qindex N] [--background-dir DIR]\n\
+                    "Usage: av2codec-live [--port N] [--bind ADDR] [--fps N] [--qindex N] [--background-dir DIR]\n\
                      \n\
                      Serves a camera multiview demo at http://localhost:<port>/.\n\
                      The camera feed becomes extended layer 3 of a 2x2 AV2 multistream,\n\

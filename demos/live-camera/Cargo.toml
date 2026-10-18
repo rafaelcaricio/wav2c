@@ -1,0 +1,12 @@
+[package]
+name = "av2codec-live"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "av2codec-live"
+path = "src/main.rs"
+
+[dependencies]
+av2codec = { path = "../.." }

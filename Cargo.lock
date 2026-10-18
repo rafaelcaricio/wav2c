@@ -5,3 +5,17 @@ version = 4
 [[package]]
 name = "av2codec"
 version = "0.1.0"
+
+[[package]]
+name = "av2codec-live"
+version = "0.1.0"
+dependencies = [
+ "av2codec",
+]
+
+[[package]]
+name = "av2codec-wasm"
+version = "0.1.0"
+dependencies = [
+ "av2codec",
+]

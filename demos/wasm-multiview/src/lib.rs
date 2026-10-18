@@ -1,10 +1,10 @@
 use std::sync::Mutex;
 
-use crate::decode::Decoder;
-use crate::multiview::{
+use av2codec::multiview::{
     AtlasLayout, MultiviewConfig, MultiviewView, PURPOSE_MULTIVIEW_PLAYBACK,
     encode_multiview_with_threads,
 };
+use av2codec::Decoder;
 
 static RESULT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
@@ -15,7 +15,7 @@ pub extern "C" fn av2_alloc(size: usize) -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn av2_free(pointer: *mut u8, size: usize) {
+pub unsafe extern "C" fn av2_free(pointer: *mut u8, size: usize) {
     if pointer.is_null() {
         return;
     }
@@ -34,7 +34,7 @@ pub extern "C" fn av2_result_len() -> usize {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn av2_encode_multiview(
+pub unsafe extern "C" fn av2_encode_multiview(
     view_count: u32,
     width: u32,
     height: u32,
@@ -47,7 +47,7 @@ pub extern "C" fn av2_encode_multiview(
     }
     let width = width as usize;
     let height = height as usize;
-    if width < 4 || height < 4 || width % 4 != 0 || height % 4 != 0 {
+    if width < 4 || height < 4 || !width.is_multiple_of(4) || !height.is_multiple_of(4) {
         return 0;
     }
     let luma = width * height;
@@ -90,7 +90,7 @@ pub extern "C" fn av2_encode_multiview(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn av2_decode(bitstream: *const u8, len: usize) -> usize {
+pub unsafe extern "C" fn av2_decode(bitstream: *const u8, len: usize) -> usize {
     if bitstream.is_null() || len == 0 {
         return 0;
     }
@@ -119,13 +119,13 @@ pub extern "C" fn av2_decode(bitstream: *const u8, len: usize) -> usize {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn av2_convert_rgba(rgba: *const u8, width: u32, height: u32, out: *mut u8) -> usize {
+pub unsafe extern "C" fn av2_convert_rgba(rgba: *const u8, width: u32, height: u32, out: *mut u8) -> usize {
     if rgba.is_null() || out.is_null() || width < 4 || height < 4 {
         return 0;
     }
     let width = width as usize;
     let height = height as usize;
-    if width % 2 != 0 || height % 2 != 0 {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         return 0;
     }
     let source = unsafe { std::slice::from_raw_parts(rgba, width * height * 4) };

@@ -1,0 +1,11 @@
+[package]
+name = "av2codec-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+av2codec = { path = "../.." }

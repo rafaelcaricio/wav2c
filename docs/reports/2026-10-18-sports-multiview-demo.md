@@ -10,7 +10,7 @@ Run it with:
 
 ```sh
 cargo build --release --bin av2codec
-python3 tools/sports_multiview_demo.py
+python3 demos/native/sports_multiview_demo.py
 ```
 
 The demo downloads four short clips (Mixkit Free License), letterboxes them to
