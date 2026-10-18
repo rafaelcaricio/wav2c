@@ -44,6 +44,31 @@ Note on AVM CLI semantics: in this build `--qp=N` is an absolute qindex
 (logged as `Q: N`), so a true lossless reference stream is `--qp=0`;
 `--qp=120` is a lossy qindex-120 stream, not lossless.
 
+Additional decoder work completed after the initial resolution:
+
+- **Parity hiding** — hidden DC sign CDF bank, doubled high-range path; reference
+  streams are bit-exact.
+- **Quant matrices** — frame QM parameters are parsed and the predefined
+  inverse QM tables are applied per coefficient; reference streams are
+  bit-exact.
+- **MRLS** — multi-line MRL prediction averages the selected reference line
+  with line zero; reference streams are bit-exact.
+- **Inverse transform order** — the 4x4/8x8/16x16 inverse DCTs now run the
+  row pass before the column pass, matching §7.15.4 and the reference
+  implementations; this removed the last 1-2 LSB chroma differences on
+  self-encoded streams.
+- **dav2d cross-validation** — all 21 av2codec-generated streams decode
+  identically under `avmdec` and `dav2d`, and the regenerated reference
+  fixtures agree byte-for-byte between both decoders.
+- **Fail-closed behaviour** — IST, DIP/FSC-style coefficient coding, and
+  in-loop filters (deblocking, CDEF, GDF, restoration, CCSO) are not yet
+  implemented; streams that use them now return
+  `DecodeError::UnsupportedFeature` instead of emitting wrong pixels.
+- **Automation** — committed tool-specific fixtures (lossless, parity, QM,
+  MRLS) with bit-exact hash tests; a dav2d integration suite; CI that builds
+  pinned AVM and dav2d revisions; and
+  `tools/regenerate_avmenc_fixtures.sh`.
+
 Independent corrections to the header audit (§5) remain valid: the filter
 group is already **9 bits**, and the transform/quant group has **12 flags
 before `equal_ac_dc_q`**, so neither is a defect.

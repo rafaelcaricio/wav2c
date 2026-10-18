@@ -827,25 +827,25 @@ pub fn forward_dct2_16x16(residual: &[i32; 256]) -> [i32; 256] {
 pub fn inverse_dct2_4x4(coeffs: &[i32; 16]) -> [i32; 16] {
     let mut temp = [[0i32; 4]; 4];
 
-    for col in 0..4 {
-        for spatial_row in 0..4 {
-            let mut sum = 0i64;
-            for freq_row in 0..4 {
-                sum += FWD_DCT2_4[freq_row][spatial_row] as i64 * coeffs[freq_row * 4 + col] as i64;
-            }
-            temp[spatial_row][col] = round_shift(sum, 7);
-        }
-    }
-
-    let mut output = [0i32; 16];
-    for spatial_row in 0..4 {
+    for row in 0..4 {
         for spatial_col in 0..4 {
             let mut sum = 0i64;
             for freq_col in 0..4 {
                 sum +=
-                    FWD_DCT2_4[freq_col][spatial_col] as i64 * temp[spatial_row][freq_col] as i64;
+                    FWD_DCT2_4[freq_col][spatial_col] as i64 * coeffs[row * 4 + freq_col] as i64;
             }
-            output[spatial_row * 4 + spatial_col] = round_shift(sum, 10);
+            temp[row][spatial_col] = round_shift(sum, 7).clamp(-32768, 32767);
+        }
+    }
+
+    let mut output = [0i32; 16];
+    for spatial_col in 0..4 {
+        for spatial_row in 0..4 {
+            let mut sum = 0i64;
+            for freq_row in 0..4 {
+                sum += FWD_DCT2_4[freq_row][spatial_row] as i64 * temp[freq_row][spatial_col] as i64;
+            }
+            output[spatial_row * 4 + spatial_col] = round_shift(sum, 10).clamp(-256, 255);
         }
     }
 
@@ -855,25 +855,25 @@ pub fn inverse_dct2_4x4(coeffs: &[i32; 16]) -> [i32; 16] {
 pub fn inverse_dct2_8x8(coeffs: &[i32; 64]) -> [i32; 64] {
     let mut temp = [[0i32; 8]; 8];
 
-    for col in 0..8 {
-        for spatial_row in 0..8 {
-            let mut sum = 0i64;
-            for freq_row in 0..8 {
-                sum += FWD_DCT2_8[freq_row][spatial_row] as i64 * coeffs[freq_row * 8 + col] as i64;
-            }
-            temp[spatial_row][col] = round_shift(sum, 7);
-        }
-    }
-
-    let mut output = [0i32; 64];
-    for spatial_row in 0..8 {
+    for row in 0..8 {
         for spatial_col in 0..8 {
             let mut sum = 0i64;
             for freq_col in 0..8 {
                 sum +=
-                    FWD_DCT2_8[freq_col][spatial_col] as i64 * temp[spatial_row][freq_col] as i64;
+                    FWD_DCT2_8[freq_col][spatial_col] as i64 * coeffs[row * 8 + freq_col] as i64;
             }
-            output[spatial_row * 8 + spatial_col] = round_shift(sum, 11);
+            temp[row][spatial_col] = round_shift(sum, 7).clamp(-32768, 32767);
+        }
+    }
+
+    let mut output = [0i32; 64];
+    for spatial_col in 0..8 {
+        for spatial_row in 0..8 {
+            let mut sum = 0i64;
+            for freq_row in 0..8 {
+                sum += FWD_DCT2_8[freq_row][spatial_row] as i64 * temp[freq_row][spatial_col] as i64;
+            }
+            output[spatial_row * 8 + spatial_col] = round_shift(sum, 11).clamp(-256, 255);
         }
     }
 
@@ -883,26 +883,26 @@ pub fn inverse_dct2_8x8(coeffs: &[i32; 64]) -> [i32; 64] {
 pub fn inverse_dct2_16x16(coeffs: &[i32; 256]) -> [i32; 256] {
     let mut temp = [[0i32; 16]; 16];
 
-    for col in 0..16 {
-        for spatial_row in 0..16 {
+    for row in 0..16 {
+        for spatial_col in 0..16 {
             let mut sum = 0i64;
-            for freq_row in 0..16 {
-                sum +=
-                    FWD_DCT2_16[freq_row][spatial_row] as i64 * coeffs[freq_row * 16 + col] as i64;
+            for freq_col in 0..16 {
+                sum += FWD_DCT2_16[freq_col][spatial_col] as i64
+                    * coeffs[row * 16 + freq_col] as i64;
             }
-            temp[spatial_row][col] = round_shift(sum, 6).clamp(-32768, 32767);
+            temp[row][spatial_col] = round_shift(sum, 6).clamp(-32768, 32767);
         }
     }
 
     let mut output = [0i32; 256];
-    for spatial_row in 0..16 {
-        for spatial_col in 0..16 {
+    for spatial_col in 0..16 {
+        for spatial_row in 0..16 {
             let mut sum = 0i64;
-            for freq_col in 0..16 {
-                sum +=
-                    FWD_DCT2_16[freq_col][spatial_col] as i64 * temp[spatial_row][freq_col] as i64;
+            for freq_row in 0..16 {
+                sum += FWD_DCT2_16[freq_row][spatial_row] as i64
+                    * temp[freq_row][spatial_col] as i64;
             }
-            output[spatial_row * 16 + spatial_col] = round_shift(sum, 13);
+            output[spatial_row * 16 + spatial_col] = round_shift(sum, 13).clamp(-256, 255);
         }
     }
 
