@@ -178,6 +178,12 @@
     color: var(--muted);
   }
 
+  .cols.cost { grid-template-columns: .84fr 1.16fr; }
+
+  .shot { margin: 0; border: 1px solid var(--line); background: #101512; padding: 10px; }
+
+  .shot img { display: block; width: 100%; height: auto; }
+
   .qr-wrap { display: grid; justify-items: center; gap: 22px; }
 
   .qr-wrap .qr {
@@ -316,10 +322,39 @@
         </div>
       </div>
     </section>
+
+    <section class="slide" id="slide-4">
+      <div>
+        <div class="kicker">cost</div>
+        <h2>What this cost</h2>
+      </div>
+      <div class="cols cost">
+        <div>
+          <p class="lead">
+            A month of DeepSeek API usage to build, debug and document the codec,
+            the demos and this deck.
+          </p>
+          <dl class="numbers" style="margin-top: 24px;">
+            <div><dt>total cost</dt><dd>$1.70<small>usd</small></dd></div>
+            <div><dt>requests</dt><dd>1,073</dd></div>
+            <div><dt>tokens</dt><dd>364<small>m</small></dd></div>
+            <div><dt>balance</dt><dd>$8.29<small>usd</small></dd></div>
+          </dl>
+          <p class="note" style="margin-top: 20px;">
+            DeepSeek platform usage, 19 Sep – 18 Oct. 364,185,233 tokens across
+            1,073 requests.
+          </p>
+        </div>
+        <figure class="shot">
+          <img src="images/deepseek-usage.jpg"
+               alt="DeepSeek platform usage page showing $1.70 total cost, 1,073 API requests and 364,185,233 tokens over the last 30 days">
+        </figure>
+      </div>
+    </section>
   </main>
 
   <footer>
-    <span id="page">1 / 3</span>
+    <span id="page">1 / 4</span>
     <span class="hint">← → or space to navigate · print to PDF for the projector</span>
   </footer>
 

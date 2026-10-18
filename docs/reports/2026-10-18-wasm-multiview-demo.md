@@ -52,8 +52,9 @@ replaces that call (and composition stays in JS either way).
 
 ## Slides
 
-`demos/slides/index.html`, three slides, arrow keys/space to navigate, QR code on
-the last slide pointing at <https://static.caric.io/vdd26/av2demo>. The deck is
+`demos/slides/index.html`, four slides, arrow keys/space to navigate, QR code on
+the third slide pointing at <https://static.caric.io/vdd26/av2demo>; the last
+slide shows the API cost of the work. The deck is
 self-contained: the QR code is inline SVG, so no companion image is needed; use
 `demos/slides/make_qr.py` to regenerate it for another URL. The hosted
 URL is HTTPS, so remote devices can use their camera; serving the files locally
