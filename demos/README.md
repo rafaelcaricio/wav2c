@@ -32,6 +32,12 @@ The page captures the camera plus three canvas-rendered sports feeds, encodes
 them as one AV2 multistream inside the tab, decodes it and paints the 640×384
 canvas. Without a camera it keeps running with a placeholder layer.
 
+Every temporal unit is also kept in the page (up to 120 s) as a session
+recording; **Download .obu** writes the concatenated multistream to an
+`av2-multiview-<timestamp>.obu` file, which is a normal AV2 bitstream (four
+extended layers, LCR and atlas included) that `avmdec`, `dav2d` or
+`av2codec_decode` can open.
+
 Camera capture requires a secure origin (`https://` or `http://localhost`); over
 plain HTTP the page shows a warning and disables the camera button.
 

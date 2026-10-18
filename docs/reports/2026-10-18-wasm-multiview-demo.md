@@ -16,6 +16,10 @@ crate with `demos/wasm-multiview/build.sh`). No server is involved in the codec 
    header, CLK) at qindex 150.
 4. `av2_decode` decodes that temporal unit back to four frames.
 5. The page composes them row-major into the 640x384 canvas and paints it.
+6. Each temporal unit is kept for up to 120 s; the *Download .obu* button writes
+   the concatenated units as `av2-multiview-<timestamp>.obu`. The recorded file
+   is a valid AV2 multistream: decoding 80 recorded units (5 s) yields 320
+   frames of 320x192, i.e. four layers per temporal unit.
 
 Measured in Chrome on an AMD Ryzen 9 7900X: **15 fps** loop, ~37 ms encode,
 ~3.6 ms decode, ~3 KB per temporal unit (~330 kb/s), 717 KB wasm module

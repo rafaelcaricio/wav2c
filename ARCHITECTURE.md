@@ -132,8 +132,12 @@ av2_decode                           // bitstream → frames (header + Y/U/V pla
 
 ```
 canvas feeds + camera ─► RGBA ─► [wasm] YUV420 ─► [wasm] AV2 encode ─► 3 KB TU
-        ▲                                                                   │
+        ▲                                                │                  │
+        │                                                └─► recording buffer│
         └── JS composition ◄── 4 frames ◄── [wasm] AV2 decode ◄─────────────┘
+
+The recording buffer keeps up to 120 s of temporal units; Download .obu
+concatenates them into a normal AV2 multistream file.
 ```
 
 Views are 320×192 (canvas 640×384), qindex 150. Measured in Chrome: 15 fps,

@@ -62,6 +62,9 @@
   button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #0a0d08; font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; padding: 12px 20px; cursor: pointer; }
   button:hover { background: #d8ff7a; }
   button:disabled { opacity: .55; cursor: progress; }
+  button.download { background: transparent; color: var(--accent); border-color: var(--accent); margin-top: 12px; }
+  button.download:hover:not(:disabled) { background: rgba(198, 255, 61, .12); }
+  button.download:disabled { opacity: .35; cursor: not-allowed; }
   dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
   dl > div { background: #101512; padding: 12px 12px 10px; }
   dt { font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -159,7 +162,21 @@
           <li><span>decoder</span><b>av2codec decoder · wasm32</b></li>
           <li><span>layers</span><b>4 × 320×192</b></li>
           <li><span>canvas</span><b>640×384 · 2×2</b></li>
+          <li><span>recording</span><b id="recording-row">0 s</b></li>
         </ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Session recording</h2>
+          <span class="tag" id="recording-state">recording</span>
+        </div>
+        <p class="caption" id="recording-meta">0.0 s · 0 KB</p>
+        <button class="download" id="download" type="button" disabled>Download .obu</button>
+        <p class="caption">
+          Every temporal unit encoded in this tab is kept here as one AV2 multistream
+          file: four extended layers, LCR and atlas included.
+        </p>
       </section>
     </aside>
   </main>
@@ -200,6 +217,47 @@ const cameraContext = cameraCanvas.getContext("2d", { willReadFrequently: true }
 const grabContexts = backgrounds.map((canvas) => canvas.getContext("2d", { willReadFrequently: true }));
 
 const state = { wasm: null, time: 0, frame: 0, encoding: false };
+
+const RECORDING_SECONDS = 120;
+const recording = { chunks: [], bytes: 0, frames: 0 };
+const downloadButton = document.getElementById("download");
+const recordingMeta = document.getElementById("recording-meta");
+const recordingState = document.getElementById("recording-state");
+const recordingRow = document.getElementById("recording-row");
+
+function updateRecording() {
+  const seconds = recording.frames / SEND_FPS;
+  recordingMeta.textContent =
+    seconds.toFixed(1) + " s · " + Math.round(recording.bytes / 1024) + " KB · max " + RECORDING_SECONDS + " s";
+  recordingState.textContent =
+    recording.frames >= RECORDING_SECONDS * SEND_FPS ? "complete" : "recording";
+  recordingRow.textContent = Math.round(recording.bytes / 1024) + " KB";
+  downloadButton.disabled = recording.chunks.length === 0;
+}
+
+function recordTemporalUnit(temporalUnit) {
+  if (recording.frames >= RECORDING_SECONDS * SEND_FPS) return;
+  recording.chunks.push(temporalUnit);
+  recording.bytes += temporalUnit.length;
+  recording.frames += 1;
+  if (recording.frames % SEND_FPS === 0) updateRecording();
+}
+
+function downloadRecording() {
+  if (recording.chunks.length === 0) return;
+  const blob = new Blob(recording.chunks, { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "av2-multiview-" + new Date().toISOString().replace(/[:.]/g, "-") + ".obu";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+downloadButton.addEventListener("click", downloadRecording);
+updateRecording();
 
 function drawPitch(context, time) {
   const t = time / 1000;
@@ -451,6 +509,7 @@ function startLoop() {
       const loopMs = now - last;
       const result = encodeFrame(now);
       if (result) {
+        recordTemporalUnit(result.temporalUnit);
         paintDecoded(result.decoded, result.frameCount);
         state.frame += 1;
         updateStats(result, loopMs);
