@@ -33,7 +33,7 @@ pub fn parse_obus(data: &[u8]) -> Vec<RawObu<'_>> {
 
         let mut payload_start = offset + 1;
         let mut obu_mlayer_id = 0;
-        let mut obu_xlayer_id = 0;
+        let mut obu_xlayer_id = if obu_type == 2 || obu_type == 20 { 31 } else { 0 };
         if extension_flag {
             if payload_start >= offset + obu_size {
                 break;
@@ -125,6 +125,13 @@ mod tests {
     fn truncated_extension_header_ends_parsing() {
         let data = [0x01u8, 0x80 | (16 << 2)];
         assert!(parse_obus(&data).is_empty());
+    }
+
+    #[test]
+    fn temporal_delimiter_is_scoped_to_the_global_layer() {
+        let packed = ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]);
+        let obus = parse_obus(&packed);
+        assert_eq!(obus[0].obu_xlayer_id, 31);
     }
 
     #[test]

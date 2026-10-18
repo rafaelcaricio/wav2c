@@ -34,6 +34,10 @@ grid (G.2), a three-participant conferencing layout with resampling (G.3), and
 region-of-interest scalability with encoder padding and normative cropping
 (G.4).
 
+Status: av2codec's encoder now emits multiview bitstreams (global LCR, per-layer
+local LCRs, enhanced atlas, MSDO) that `avmdec` decodes per view bit-exactly;
+§8.2 describes the layout and §9 lists the remaining decoder and encoder work.
+
 ## 2. Layer vocabulary
 
 | Term | Syntax element / scope | Meaning |
@@ -322,82 +326,165 @@ it recognises.
 
 ## 8. av2codec status
 
+### 8.1 Decoder
+
 Supported today:
 
-- Layer-scoped OBU headers: `parse_obus` (`src/decode/obu.rs`) now decodes
+- Layer-scoped OBU headers: `parse_obus` (`src/decode/obu.rs`) decodes
   `obu_header_extension_flag`, `obu_tlayer_id`, `obu_mlayer_id` and
-  `obu_xlayer_id`, and starts the payload after the extension byte.
+  `obu_xlayer_id`, starts the payload after the extension byte, and applies the
+  §5.2.2 inference (no extension header means extended layer 0, except for
+  temporal delimiter and MSDO which are global).
 - OBU types without a coded-picture role (`LCR` 16, `ATLAS` 17, `OPS` 18,
   `MSDO` 20, `QM` 22, metadata 8/9, padding 25, …) are skipped by the frame
   decoder, which looks only for the sequence header and CLK frame OBUs.
-- A stream carrying LCR and atlas metadata decodes bit-exactly (fixture above,
-  asserted in `src/decode/mod.rs` and `tests/dav2d_integration.rs`), so the
-  decoder does not reject compliant metadata.
+- A stream carrying LCR and atlas metadata decodes bit-exactly (fixture
+  `avmenc_lcr_atlas_128x128.obu`, asserted in `src/decode/mod.rs` and
+  `tests/dav2d_integration.rs`), so the decoder does not reject compliant
+  metadata.
 
 Not supported:
 
 - No typed parsing of LCR/atlas/OPS/MSDO: their contents are never interpreted,
   so no layer catalogue, no view identification and no atlas geometry are
   exposed through the API.
-- Single extended layer only. A stream whose sequence header and frames belong
-  to `obu_xlayer_id != 0` is not handled as a separate layer, and multistream
-  input (N files, Annex F.2.2 style) is not accepted.
+- The decoder is single-layer aware. It decodes every CLK OBU of a multistream
+  in bitstream order using the first sequence header, which is only correct when
+  all layers share the same sequence parameters; it does not select a layer and
+  does not accept N separate input files.
 - No composition (Annex D), no cropping/resampling (Annex G.4), no operating
   point selection.
-- The encoder never emits LCR/atlas/OPS OBUs, so av2codec cannot produce
-  multiview or atlas-annotated streams.
 
-This is conformant — Annex D composition is informative and the coded pictures
-of every view decode with the existing intra path — but it means av2codec
-cannot act as a multiview/atlas *consumer*.
+### 8.2 Encoder (implemented)
 
-## 9. Implementation plan
+The encoder now produces real multiview bitstreams. `src/multiview.rs` exposes
 
-P1 — metadata parsing (no pixel effect):
-`src/decode/lcr.rs`, `src/decode/atlas.rs`, `src/decode/ops.rs` with
-`no_std`-free plain structs mirroring §5.8–5.11, range checks from §6.8/§6.9,
-and a `LayerContext` holding `lcr_list[xlayer][id]`, `atlas_list[xlayer][id]`,
-`ops_list[xlayer][id]` plus MSDO state. Unit tests: golden bit sequences built
-with a small writer, the LCR/atlas fixture above, and negative cases
-(reserved IDs, non-identical repeated records, multistream atlas outside the
-global context).
+```rust
+pub fn encode_multiview(config: &MultiviewConfig) -> Result<Vec<u8>, EncodeError>;
+pub fn extract_layer(bitstream: &[u8], xlayer_id: u8) -> Vec<u8>;
+```
 
-P2 — public layer catalogue:
-`Decoder::layers() -> &[LayerInfo]` exposing xlayer id, view type/id, layer
-type/auxiliary type, atlas segment id, priority, rendering method, max
-resolution and cropping window; `Decoder::atlas()` exposing canvas size and
-segment rectangles. No decode path changes.
+with `MultiviewConfig { base_qindex, purpose_id, layout, views }`,
+`MultiviewView { width, height, view_type, view_id, layer_type,
+auxiliary_type, frames }` and `AtlasLayout::{Row, Column}`. Two to four views
+are supported (`num_streams_minus_2` allows at most four streams), each view may
+have its own resolution, and all views must provide the same number of frames.
 
-P3 — multistream input:
-`Decoder::decode_streams(&[&[u8]])` decoding one bitstream per xlayer, tagging
-each `DecodedFrame` with `mlayer_id`/`xlayer_id`, and cross-checking the
-declared `lcr_xlayer_map` against the streams supplied. This is the point where
-per-layer conformance (identical sequence header parameters where required,
-`lcr_enforce_tile_alignment_flag`) can be verified.
+Output layout for every temporal unit (all views share one output time):
 
-P4 — optional composition:
-A separately gated module implementing Annex D (background init, rectangular
-spatial mapping, alpha pairing) and the Annex G.4 crop-then-place rule, with a
-pluggable resampler. Kept opt-in because the spec does not require it and the
-resampling policy is implementation-defined.
+```
+TD (global)                                  §7.3.7
+MSDO (global)                                §5.6, required at IP0 when layers > 1
+global LCR (obu_xlayer_id = 31)              §5.8.1, carries per-layer xlayer_info
+atlas segment info (obu_xlayer_id = 31)      §5.9.2, enhanced atlas
+for each view in ascending obu_xlayer_id:    §7.3.6, §7.3.1 requirement 6
+    local LCR (obu_xlayer_id = view)         §5.8.2
+    sequence header (seq_lcr_id = 1)         §5.4.1, activates the LCR
+    CLK frame
+```
 
-P5 — operating point selection:
-Honour OPS to skip layers/temporal layers the caller did not select, matching
-`avmdec --select-local-ops` behaviour closely enough for cross-checks.
+Details that matter for conformance:
 
-P6 — encoder side:
-Emit a global LCR plus atlas for the multi-file output mode so that av2codec can
-generate its own multiview test vectors; the reference encoder cannot, and
-hand-patching OBUs is fragile for long-term tests.
+- **Profile 0 forces MSDO.** Table A.4 requires `OBU_MSDO` whenever a bitstream
+  at interoperability point 0 has more than one extended layer, so the encoder
+  always writes an MSDO with `num_streams_minus_2 + 2` equal to the view count,
+  `multistream_profile_idc = 0`, one `sub_xlayer_id` per view and
+  `multistream_doh_constraint_flag = 1` (the sequence header sets
+  `monotonic_output_order_flag = 0`, which requires both DOH constraint flags to
+  be 1).
+- **Two LCR scopes, identical content.** The global LCR carries
+  `lcr_global_payload_present_flag = 1` with one `lcr_global_payload()` per
+  layer, and each layer also gets a local LCR whose `lcr_xlayer_info` bytes are
+  exactly the global payload bytes. `avmdec` compares the two structures with
+  `memcmp` when a local LCR names a parent global LCR that lists the same layer,
+  so identical bytes are mandatory; sharing one `write_xlayer_info()` between
+  both writers guarantees it.
+- `lcr_max_pic_width/height` in the activated LCR must equal the sequence
+  header's `max_frame_width/height`; both are the superblock-padded dimensions.
+  `lcr_cropping_window_present_flag` matches `seq_cropping_window_present_flag`
+  (0), and `lcr_mlayer_map = 1` / `lcr_tlayer_map = 1` match the sequence
+  header's single embedded and temporal layer.
+- **Views are declared, not implied.** Each local LCR sets `lcr_view_type`
+  (`VIEW_LEFT`/`VIEW_RIGHT` for two views, `VIEW_EXPLICIT` plus `lcr_view_id`
+  otherwise), `lcr_layer_type` (`TEXTURE_LAYER`, optionally `AUX_LAYER` plus
+  `lcr_auxiliary_type`), `lcr_layer_atlas_segment_id = view index`,
+  `lcr_priority_order = view index` and `lcr_rendering_method = 0`. The global
+  LCR sets `lcr_global_purpose_id` to `STEREOSCOPIC_VIEWPORTS` or
+  `MULTIVIEW_PLAYBACK`.
+- **Atlas geometry.** `AtlasLayout::Row` emits one column per view, one row with
+  the maximum view height; `Column` emits one row per view, one column with the
+  maximum view width. `ats_uniform_spacing_flag = 0` whenever view sizes differ,
+  `ats_single_region_per_atlas_segment_flag = 1` so each region is one segment,
+  and segment ids are the view indices. `lcr_enforce_tile_alignment_flag` is set
+  only when all views share one size.
+- The spec's §5.2.2 `obu_extension_flag` (0) is written before the trailing bits
+  of every extensible OBU (sequence header, LCR, atlas); `avmdec` reads it.
 
-Test vector gap: because `avmenc` cannot produce genuine multiview content, P1
-and P3 tests must rely on (a) the single-layer LCR/atlas fixture, (b) synthetic
-bitstreams assembled from a sequence header plus hand-built LCR/atlas OBUs, and
-(c) eventually av2codec's own encoder output (P6). Cross-decoder agreement for
-composed output is not checkable against `avmdec`, which has no compositor;
-only per-layer decoded planes can be compared.
+Validation, all with stock `avmdec`:
+
+| Scenario | Result |
+|---|---|
+| 2-view stereoscopic, qindex 0, one frame | per-view output bit-exact against the source planes (`--num-streams=2`) |
+| 3-view `MULTIVIEW_PLAYBACK`, column layout, qindex 0 | per-view output bit-exact |
+| 2 views, 3 frames, qindex 0 | per-view multi-frame output bit-exact |
+| 64x64 + 128x64 views | non-uniform atlas grid, both views bit-exact |
+| texture + alpha auxiliary layer | both layers bit-exact |
+| extracted singlestream per layer (`extract_layer`) | decodes bit-exactly with both `avmdec` and av2codec's decoder, confirming §7.3.1 requirement 7 |
+
+`dav2d` currently decodes a multistream as a sequence of frames (it ignores
+LCR/atlas and reports "Decoded 2/1 frames"), so it cannot be used to validate
+per-view output; it still decodes the extracted singlestreams.
+
+## 9. Remaining work
+
+Decoder side (in priority order):
+
+P1 — metadata parsing: `src/decode/lcr.rs`, `src/decode/atlas.rs`,
+`src/decode/ops.rs` with plain structs mirroring §5.8–5.11, range checks from
+§6.8/§6.9, and a `LayerContext` holding `lcr_list[xlayer][id]`,
+`atlas_list[xlayer][id]`, `ops_list[xlayer][id]` plus MSDO state. Unit tests:
+golden bit sequences, the LCR/atlas fixture above, and negative cases (reserved
+IDs, non-identical repeated records, multistream atlas outside the global
+context). The writers in `src/bitstream/{lcr,atlas,msdo}.rs` can be mirrored for
+the parser tests.
+
+P2 — public layer catalogue: `Decoder::layers() -> &[LayerInfo]` exposing
+xlayer id, view type/id, layer type/auxiliary type, atlas segment id, priority,
+rendering method, max resolution and cropping window; `Decoder::atlas()`
+exposing canvas size and segment rectangles. No decode path changes.
+
+P3 — layer selection and multistream input: decode one extended layer at a time
+(either extracted from one bitstream or supplied as N files), tag each
+`DecodedFrame` with `mlayer_id`/`xlayer_id`, and verify per-layer conformance
+(sequence header agreement, `lcr_enforce_tile_alignment_flag`).
+
+P4 — optional composition: a separately gated module implementing Annex D
+(background init, rectangular spatial mapping, alpha pairing) and the Annex G.4
+crop-then-place rule, with a pluggable resampler. Kept opt-in because the spec
+does not require it and the resampling policy is implementation-defined.
+
+P5 — operating point selection: honour OPS to skip layers/temporal layers the
+caller did not select, matching `avmdec --select-local-ops` behaviour closely
+enough for cross-checks.
+
+Encoder side:
+
+- Pair auxiliary layers with their texture layer in the same atlas segment
+  (`lcr_priority_order` / `lcr_rendering_method`) instead of giving every view
+  its own segment.
+- Emit OPS OBUs for layer/temporal-layer selection.
+- Support multiple embedded layers per extended layer (alpha and depth in one
+  layer), which also exercises `lcr_mlayer_map` beyond the single bit used now.
+- Optional encoder-side padding and cropping windows (`lcr_rep_info`) for
+  hardware-aligned coding of non-multiple-of-64 views.
+
+Test vector gap: because `avmenc` cannot produce genuine multiview content, all
+multiview tests use av2codec's own encoder output; per-view results are then
+checked against `avmdec --num-streams`, which is the only available independent
+compositor-free reference.
 
 ## 10. References
+
 
 - AV2 spec §5.2.2 (OBU header), §5.6 (MSDO), §5.8 (LCR), §5.9 (atlas),
   §5.10–5.11 (OPS), §6.6, §6.8, §6.9, §6.10, §7.3.2, §7.3.6, §7.6.

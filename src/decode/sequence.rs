@@ -585,6 +585,7 @@ mod tests {
         let payload = write_sequence_header(&SequenceHeaderConfig {
             width: 64,
             height: 64,
+            lcr_id: 0,
         });
         let params = parse_sequence_header(&payload).unwrap();
         assert_eq!(params.width, 64);
@@ -600,6 +601,7 @@ mod tests {
         let payload = write_sequence_header(&SequenceHeaderConfig {
             width: 128,
             height: 128,
+            lcr_id: 0,
         });
         let params = parse_sequence_header(&payload).unwrap();
         assert_eq!(params.width, 128);
@@ -611,6 +613,7 @@ mod tests {
         let payload = write_sequence_header(&SequenceHeaderConfig {
             width: 256,
             height: 192,
+            lcr_id: 0,
         });
         let params = parse_sequence_header(&payload).unwrap();
         assert_eq!(params.width, 256);
@@ -622,6 +625,7 @@ mod tests {
         let payload = write_sequence_header(&SequenceHeaderConfig {
             width: 256,
             height: 256,
+            lcr_id: 0,
         });
         let params = parse_sequence_header(&payload).unwrap();
         assert_eq!(params.width, 256);
@@ -633,6 +637,7 @@ mod tests {
         let payload = write_sequence_header(&SequenceHeaderConfig {
             width: 1920,
             height: 1080,
+            lcr_id: 0,
         });
         let params = parse_sequence_header(&payload).unwrap();
         assert_eq!(params.width, 1920);

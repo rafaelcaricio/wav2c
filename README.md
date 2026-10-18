@@ -40,6 +40,7 @@ Supported on the intra path (profile 0, 8-bit 4:2:0):
 | Secondary transform (IST), DIP, frequency-selective coefficient coding | **Rejected explicitly** (fail closed) |
 | CDEF, GDF, restoration, CCSO, deblocking | **Rejected explicitly** (fail closed) |
 | Layer config record, atlas segment, operating point set, MSDO, metadata OBUs | Parsed and skipped (single extended layer, no composition) |
+| Multiview / atlas-tiled encoding (2-4 layers, LCR + atlas + MSDO) | Supported |
 | Inter prediction | Not implemented |
 
 Unsupported tools return `DecodeError::UnsupportedFeature` instead of silently
@@ -56,14 +57,27 @@ render them.
 #### Encoding
 
 ```
-av2codec <input.y4m> <output.obu> [--qindex N]
+av2codec <input.y4m> [<view.y4m> ...] <output.obu> [options]
 ```
 
 | Argument | Description |
 |---|---|
 | `input.y4m` | Input video in Y4M format (8-bit 4:2:0 I420) |
+| `view.y4m` | Additional views, one extended layer each (requires `--multiview`) |
 | `output.obu` | Output AV2 bitstream (OBU format) |
 | `--qindex N` | Base quantizer index, 0-255 (default: 50) |
+| `--multiview` | Encode every input as an extended layer of one multistream bitstream |
+| `--layout row\|column` | Atlas grid direction for multiview (default: `row`) |
+| `--purpose stereo\|multiview` | Global LCR purpose id (default by view count) |
+| `--extract-layer N` | Write only extended layer `N` of the encoded multistream |
+
+Stereoscopic pair:
+
+```sh
+av2codec left.y4m right.y4m stereo.obu --multiview --qindex 0
+avmdec --codec=av2 --i420 --num-streams=2 -o views.yuv stereo.obu
+av2codec left.y4m right.y4m left.obu --multiview --extract-layer 0
+```
 
 #### Decoding
 
@@ -190,7 +204,10 @@ The decoding pipeline reverses these steps:
 4. Inverse 2D DCT to reconstruct residuals
 5. Apply intra prediction and add residuals, clamp to [0, 255]
 
-A sequence header OBU is prepended once at the start of the bitstream.
+A sequence header OBU is prepended once at the start of the bitstream. Multiview
+streams wrap each coded layer in an extended-layer unit and describe the layout
+with a global LCR, per-layer local LCRs and an atlas segment OBU (see the
+[multiview report](docs/reports/2026-10-18-multiview-atlas-layer-composition.md)).
 
 ## Current capabilities
 
@@ -199,6 +216,8 @@ A sequence header OBU is prepended once at the start of the bitstream.
 - Intra prediction: DC, Smooth, Smooth_V, Smooth_H, Paeth (best mode selected per superblock)
 - Full DC + AC coefficient coding with forward/inverse DCT
 - Multi-frame video encoding (each frame as a CLK OBU)
+- Multiview encoding: 2-4 extended layers in one bitstream, with a global layer configuration record, per-layer local records (`lcr_view_type`, `lcr_layer_type`, atlas segment mapping), an enhanced atlas (row/column grid, mixed resolutions) and a multi-stream decoder operation OBU
+- Per-layer sub-bitstream extraction (`extract_layer`) for singlestream playback
 - **Pure Rust decoder** — decodes any AV2-compliant bitstream, not just av2codec-produced ones
 - Spec-compliant sequence header parsing (both `single_picture_header_flag=0` and `=1`)
 - Streaming encoder API (`send_frame` / `receive_packet`)
@@ -213,11 +232,12 @@ A sequence header OBU is prepended once at the start of the bitstream.
 - Fixed QP only (no rate control)
 - 8-bit 4:2:0 only
 - No deblocking filters (CDEF/GDF) — expect visible block boundaries at higher quantization
-- One extended layer: layer configuration and atlas metadata are accepted but not interpreted, and there is no multiview composition
+- The decoder is single-layer aware: layer configuration and atlas metadata are accepted but not interpreted, so it cannot select or compose views
+- Multiview composition, resampling and operating-point selection are not implemented
 
 ## Testing
 
-Unit tests (238 tests across all modules):
+Unit and integration tests:
 
 ```sh
 cargo test
@@ -230,7 +250,7 @@ Integration tests that encode video, decode with avmdec, and verify pixel values
 cargo test --test avmdec_integration -- --ignored
 ```
 
-The integration suite covers single-frame, multi-frame, multiple colors (green, red, gray), all three YUV planes, gradient/testsrc2 patterns with PSNR validation, decoder agreement between av2codec and avmdec, and CLI roundtrip encoding.
+The integration suite covers single-frame, multi-frame, multiple colors (green, red, gray), all three YUV planes, gradient/testsrc2 patterns with PSNR validation, decoder agreement between av2codec and avmdec, and CLI roundtrip encoding. `tests/multiview.rs` encodes stereoscopic, three-view, multi-frame, mixed-resolution and auxiliary-layer streams and checks that `avmdec --num-streams=N` returns every view bit-exactly, and that extracted singlestreams decode with both decoders.
 
 Visual encoder/decoder matrix with burned-in labels:
 

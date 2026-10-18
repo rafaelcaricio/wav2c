@@ -19,6 +19,7 @@ pub enum EncodeError {
         expected: usize,
         got: usize,
     },
+    InvalidMultiview(&'static str),
 }
 
 impl fmt::Display for EncodeError {
@@ -41,6 +42,9 @@ impl fmt::Display for EncodeError {
                     "{} plane size mismatch: expected {}, got {}",
                     plane, expected, got
                 )
+            }
+            EncodeError::InvalidMultiview(reason) => {
+                write!(f, "invalid multiview configuration: {}", reason)
             }
         }
     }
@@ -93,6 +97,7 @@ impl Encoder {
         let seq_config = SequenceHeaderConfig {
             width: self.padded_width,
             height: self.padded_height,
+            lcr_id: 0,
         };
         let seq_payload = write_sequence_header(&seq_config);
         let mut headers = ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]);
@@ -203,7 +208,7 @@ fn extract_subblock(
     block
 }
 
-fn round_up_to_64(dim: u32) -> u32 {
+pub(crate) fn round_up_to_64(dim: u32) -> u32 {
     (dim + 63) & !63
 }
 
@@ -1516,7 +1521,36 @@ fn qindex_to_lambda(qindex: u8) -> f64 {
     0.04 * q * q
 }
 
-fn encode_frame_yuv(
+pub(crate) fn encode_intra_frame_payload(
+    width: u32,
+    height: u32,
+    base_qindex: u8,
+    order_hint: u32,
+    y: &[u8],
+    u: &[u8],
+    v: &[u8],
+) -> Vec<u8> {
+    let pw = round_up_to_64(width);
+    let ph = round_up_to_64(height);
+    let padded_y = pad_plane(y, width, height, pw, ph);
+    let padded_u = pad_plane(u, width / 2, height / 2, pw / 2, ph / 2);
+    let padded_v = pad_plane(v, width / 2, height / 2, pw / 2, ph / 2);
+    encode_frame_yuv_payload(
+        &padded_y,
+        &padded_u,
+        &padded_v,
+        &FrameEncodeParams {
+            width: pw,
+            height: ph,
+            dequant: ac_qlookup(base_qindex),
+            base_qindex,
+            order_hint,
+        },
+        true,
+    )
+}
+
+fn encode_frame_yuv_payload(
     y_plane: &[u8],
     u_plane: &[u8],
     v_plane: &[u8],
@@ -1619,7 +1653,17 @@ fn encode_frame_yuv(
         order_hint: params.order_hint,
         disable_cdf_update: !allow_cdf_update,
     };
-    let clk_payload = write_clk_obu_payload(&frame_config, &tile_data);
+    write_clk_obu_payload(&frame_config, &tile_data)
+}
+
+fn encode_frame_yuv(
+    y_plane: &[u8],
+    u_plane: &[u8],
+    v_plane: &[u8],
+    params: &FrameEncodeParams,
+    allow_cdf_update: bool,
+) -> Vec<u8> {
+    let clk_payload = encode_frame_yuv_payload(y_plane, u_plane, v_plane, params, allow_cdf_update);
     ObuWriter::pack_obu(ObuType::Clk, &clk_payload)
 }
 
@@ -1638,6 +1682,7 @@ pub fn encode_video(width: u32, height: u32, base_qindex: u8, y_planes: &[Vec<u8
     let seq_config = SequenceHeaderConfig {
         width: pw,
         height: ph,
+        lcr_id: 0,
     };
     let seq_payload = write_sequence_header(&seq_config);
     output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
@@ -1678,6 +1723,7 @@ pub fn encode_video_yuv(
     let seq_config = SequenceHeaderConfig {
         width: pw,
         height: ph,
+        lcr_id: 0,
     };
     let seq_payload = write_sequence_header(&seq_config);
     output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));
@@ -1727,6 +1773,7 @@ pub fn encode_video_yuv_with_cdf_update(
     let seq_config = SequenceHeaderConfig {
         width: pw,
         height: ph,
+        lcr_id: 0,
     };
     let seq_payload = write_sequence_header(&seq_config);
     output.extend_from_slice(&ObuWriter::pack_obu(ObuType::TemporalDelimiter, &[]));

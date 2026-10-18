@@ -3886,7 +3886,8 @@ mod tests {
         let obus = obu::parse_obus(&data);
         let types: Vec<u8> = obus.iter().map(|obu| obu.obu_type).collect();
         assert_eq!(types, vec![2, 16, 17, 1, 4]);
-        assert!(obus.iter().all(|obu| obu.obu_xlayer_id == 0));
+        assert_eq!(obus[0].obu_xlayer_id, 31);
+        assert!(obus[1..].iter().all(|obu| obu.obu_xlayer_id == 0));
         assert!(obus.iter().all(|obu| obu.obu_mlayer_id == 0));
     }
 

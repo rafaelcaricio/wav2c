@@ -51,6 +51,12 @@ impl BitWriter {
         }
     }
 
+    pub fn write_byte_alignment(&mut self) {
+        while self.bits_in_current != 0 {
+            self.write_bit(false);
+        }
+    }
+
     pub fn byte_aligned(&self) -> bool {
         self.bits_in_current == 0
     }

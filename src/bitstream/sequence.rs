@@ -10,6 +10,7 @@ const DELTA_DCQUANT_MIN: i32 = DELTA_DCQUANT_MAX - (1 << DELTA_DCQUANT_BITS) + 1
 pub struct SequenceHeaderConfig {
     pub width: u32,
     pub height: u32,
+    pub lcr_id: u8,
 }
 
 pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
@@ -28,7 +29,7 @@ pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
     w.write_uvlc(0);
     w.write_uvlc(1);
 
-    w.write_literal(0, 3);
+    w.write_literal(config.lcr_id as u32, 3);
     w.write_bit(false);
     w.write_literal(0, 2);
     w.write_literal(0, 3);
@@ -62,7 +63,7 @@ pub fn write_sequence_header(config: &SequenceHeaderConfig) -> Vec<u8> {
     w.finalize()
 }
 
-fn compute_level(width: u32, height: u32) -> u32 {
+pub(crate) fn compute_level(width: u32, height: u32) -> u32 {
     let pic_size = (width as u64) * (height as u64);
     let max_dim = width.max(height);
     const LEVELS: [(u32, u64, u32); 9] = [
@@ -258,6 +259,7 @@ mod tests {
         let config = SequenceHeaderConfig {
             width: 64,
             height: 64,
+            lcr_id: 0,
         };
         let payload = write_sequence_header(&config);
         assert_eq!(payload[0] >> 7, 1, "First bit should be 1 (UVLC(0))");
@@ -268,6 +270,7 @@ mod tests {
         let config = SequenceHeaderConfig {
             width: 64,
             height: 64,
+            lcr_id: 0,
         };
         let payload = write_sequence_header(&config);
         let obu = ObuWriter::pack_obu(ObuType::SequenceHeader, &payload);
