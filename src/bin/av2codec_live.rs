@@ -61,6 +61,7 @@ struct Request {
 
 fn main() {
     let mut port: u16 = 8090;
+    let mut bind = String::from("127.0.0.1");
     let mut fps: u32 = 15;
     let mut qindex: u8 = 150;
     let mut background_override: Option<PathBuf> = None;
@@ -72,6 +73,16 @@ fn main() {
             "--port" => {
                 index += 1;
                 port = arguments.get(index).and_then(|v| v.parse().ok()).unwrap_or(8090);
+            }
+            "--bind" => {
+                index += 1;
+                bind = arguments
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        eprintln!("--bind expects an address, for example --bind 0.0.0.0");
+                        std::process::exit(1);
+                    });
             }
             "--fps" => {
                 index += 1;
@@ -87,11 +98,15 @@ fn main() {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: av2codec_live [--port N] [--fps N] [--qindex N] [--background-dir DIR]\n\
+                    "Usage: av2codec_live [--port N] [--bind ADDR] [--fps N] [--qindex N] [--background-dir DIR]\n\
                      \n\
                      Serves a camera multiview demo at http://localhost:<port>/.\n\
                      The camera feed becomes extended layer 3 of a 2x2 AV2 multistream,\n\
-                     next to three looping background clips (sports views when available)."
+                     next to three looping background clips (sports views when available).\n\
+                     \n\
+                     --bind defaults to 127.0.0.1. Pass --bind 0.0.0.0 to listen on all\n\
+                     interfaces; camera capture from other devices then needs a secure\n\
+                     origin (HTTPS or a localhost port forward)."
                 );
                 return;
             }
@@ -126,12 +141,20 @@ fn main() {
     let encoder_shared = Arc::clone(&shared);
     thread::spawn(move || encode_loop(encoder_shared, backgrounds, fps, qindex));
 
-    let address = format!("0.0.0.0:{port}");
+    let address = socket_address(&bind, port);
     let listener = TcpListener::bind(&address).unwrap_or_else(|error| {
         eprintln!("cannot bind {address}: {error}");
         std::process::exit(1);
     });
-    println!("AV2 live multiview on http://localhost:{port}/  (camera: layer 3, canvas {CANVAS_WIDTH}x{CANVAS_HEIGHT})");
+    println!(
+        "AV2 live multiview on {}  (bind {address}, camera: layer 3, canvas {CANVAS_WIDTH}x{CANVAS_HEIGHT})",
+        display_url(&bind, port)
+    );
+    if is_wildcard_bind(&bind) {
+        println!(
+            "  listening on all interfaces; camera access over plain HTTP only works on\n  localhost or another secure origin (use a port forward or HTTPS for remote clients)"
+        );
+    }
     for connection in listener.incoming() {
         match connection {
             Ok(stream) => {
@@ -651,6 +674,32 @@ fn read_clip(path: &Path) -> Option<Vec<Frame>> {
     Some(frames)
 }
 
+fn socket_address(bind: &str, port: u16) -> String {
+    let host = bind.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn display_url(bind: &str, port: u16) -> String {
+    let host = bind.trim().trim_start_matches('[').trim_end_matches(']');
+    let display = match host {
+        "" | "0.0.0.0" | "::" | "127.0.0.1" | "localhost" => "localhost".to_string(),
+        value if value.contains(':') => format!("[{value}]"),
+        value => value.to_string(),
+    };
+    format!("http://{display}:{port}/")
+}
+
+fn is_wildcard_bind(bind: &str) -> bool {
+    matches!(
+        bind.trim().trim_start_matches('[').trim_end_matches(']'),
+        "0.0.0.0" | "::"
+    )
+}
+
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
@@ -713,6 +762,26 @@ mod tests {
         assert_eq!(y_plane[width * VIEW_HEIGHT as usize + VIEW_WIDTH as usize], 40);
         assert_eq!(u_plane[0], 10);
         assert_eq!(u_plane[(width / 2) * (VIEW_HEIGHT / 2) as usize], 30);
+    }
+
+    #[test]
+    fn socket_address_formats_ipv4_and_ipv6() {
+        assert_eq!(socket_address("127.0.0.1", 8090), "127.0.0.1:8090");
+        assert_eq!(socket_address("0.0.0.0", 8090), "0.0.0.0:8090");
+        assert_eq!(socket_address("::1", 8090), "[::1]:8090");
+        assert_eq!(socket_address("[::]", 8090), "[::]:8090");
+    }
+
+    #[test]
+    fn display_url_hides_wildcard_hosts() {
+        assert_eq!(display_url("127.0.0.1", 8090), "http://localhost:8090/");
+        assert_eq!(display_url("0.0.0.0", 8090), "http://localhost:8090/");
+        assert_eq!(display_url("::", 8090), "http://localhost:8090/");
+        assert_eq!(display_url("192.168.1.5", 8090), "http://192.168.1.5:8090/");
+        assert_eq!(display_url("::1", 8090), "http://[::1]:8090/");
+        assert!(is_wildcard_bind("0.0.0.0"));
+        assert!(is_wildcard_bind("::"));
+        assert!(!is_wildcard_bind("127.0.0.1"));
     }
 
     #[test]

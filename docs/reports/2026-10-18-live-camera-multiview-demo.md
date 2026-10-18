@@ -13,7 +13,8 @@ cargo build --release --bin av2codec_live
 ```
 
 `--fps` (default 15), `--qindex` (default 150) and `--background-dir` control
-the pipeline. Background clips are taken from the sports demo output
+the pipeline. `--bind` (default `127.0.0.1`) selects the listen address;
+`--bind 0.0.0.0` exposes the page on every interface. Background clips are taken from the sports demo output
 (`target/demo/sports/clips/view_*.y4m`) when present, otherwise three synthetic
 clips are generated with FFmpeg into `target/demo/live`.
 
@@ -53,6 +54,23 @@ described by the same LCR/atlas metadata as the background clips.
 The page shows the same numbers live in its telemetry panel. Encoding fits the
 15 fps budget with roughly 25% headroom; the loop is paced to the target rate,
 so transient slowdowns show up as a lower fps reading rather than drift.
+
+## Exposing the demo beyond localhost
+
+The server binds to `127.0.0.1` by default. To reach the page from another
+device on the network, bind all interfaces:
+
+```sh
+./target/release/av2codec_live --port 8090 --bind 0.0.0.0
+```
+
+IPv6 literals work as well (`--bind ::`, `--bind ::1`). Note that browsers only
+allow `getUserMedia` in a secure context: plain HTTP is accepted for
+`localhost`/`127.0.0.1`, but a remote client on `http://192.168.x.x:8090` will
+refuse camera access. For remote use, either forward the port over SSH so the
+origin stays localhost (`ssh -L 8090:127.0.0.1:8090 host`), or terminate HTTPS
+in front of the server. The composed canvas still renders over plain HTTP; only
+the local camera capture needs the secure origin.
 
 ## Notes and limitations
 
