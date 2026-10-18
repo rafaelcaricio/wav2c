@@ -39,7 +39,6 @@ fn encode_y4m_fixture(fixture_path: &str, out_path: &str, qindex: u8) {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_single_frame_midgray() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -60,7 +59,6 @@ fn avmdec_decodes_single_frame_midgray() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_multi_frame_midgray() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -83,7 +81,6 @@ fn avmdec_decodes_multi_frame_midgray() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_solid_green_all_planes() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -117,7 +114,6 @@ fn avmdec_decodes_solid_green_all_planes() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_solid_red_all_planes() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -175,7 +171,6 @@ fn avmdec_decodes_solid_red_all_planes() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_multi_frame_yuv() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -243,7 +238,6 @@ fn avmdec_decodes_multi_frame_yuv() {
 }
 
 #[test]
-#[ignore]
 fn cli_encodes_y4m_fixture() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -281,7 +275,6 @@ fn cli_encodes_y4m_fixture() {
 }
 
 #[test]
-#[ignore]
 fn cli_encodes_multi_frame_y4m() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -322,7 +315,6 @@ fn cli_encodes_multi_frame_y4m() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_gradient() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -357,7 +349,6 @@ fn avmdec_decodes_gradient() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_testsrc2() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -392,7 +383,6 @@ fn avmdec_decodes_testsrc2() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_gradient_psnr() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -436,7 +426,6 @@ fn avmdec_gradient_psnr() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_128x128_solid_green() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -473,7 +462,6 @@ fn avmdec_decodes_128x128_solid_green() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_256x128_solid_red() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -528,7 +516,6 @@ fn avmdec_decodes_256x128_solid_red() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_256x192_smptebars() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -592,7 +579,6 @@ fn avmdec_decodes_256x192_smptebars() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_256x192_testsrc2() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -656,7 +642,6 @@ fn avmdec_decodes_256x192_testsrc2() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_testsrc2_psnr() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -700,7 +685,6 @@ fn avmdec_testsrc2_psnr() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_av2codec_decoder_agreement_multi_sb() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -790,7 +774,6 @@ fn avmdec_av2codec_decoder_agreement_multi_sb() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_av2codec_decoder_agreement_solid_colors() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");
@@ -864,7 +847,6 @@ fn avmdec_av2codec_decoder_agreement_solid_colors() {
 }
 
 #[test]
-#[ignore]
 fn avmdec_decodes_100x100_solid_red() {
     if !avmdec_available() {
         eprintln!("avmdec not found, skipping");

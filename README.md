@@ -20,6 +20,30 @@ cargo run --release --bin av2codec_decode -- output.obu -o decoded.y4m
 avmdec --i420 -o decoded.yuv output.obu
 ```
 
+## Conformance and supported tools
+
+Bitstreams are validated against two independent reference decoders:
+[AVM](https://github.com/AOMediaCodec/avm) (`avmdec`) and
+[dav2d](https://code.videolan.org/videolan/dav2d) (`dav2d`). CI builds both at
+pinned commits and runs the cross-decoder tests.
+
+Supported on the intra path (profile 0, 8-bit 4:2:0):
+
+| Area | Status |
+|---|---|
+| OBU framing, sequence/frame headers, temporal delimiters | Supported |
+| Partition trees, SDP, rectangular/extended partitions | Supported |
+| Intra modes, directional prediction, IDIF, MRLS incl. multi-line MRL | Supported |
+| CfL, MHCCP, palette, CCTX, TCQ | Supported where exercised by tests |
+| Quantization, quant matrices, parity hiding | Supported |
+| Lossless (inverse WHT + DPCM) | Supported |
+| Secondary transform (IST), DIP, frequency-selective coefficient coding | **Rejected explicitly** (fail closed) |
+| CDEF, GDF, restoration, CCSO, deblocking | **Rejected explicitly** (fail closed) |
+| Inter prediction | Not implemented |
+
+Unsupported tools return `DecodeError::UnsupportedFeature` instead of silently
+producing incorrect pixels.
+
 ## Usage
 
 ### CLI
@@ -304,15 +328,17 @@ docs/
   plans/                  Design documents and implementation plans
 ```
 
-## Building the reference decoder
-
-av2codec validates against the AVM reference decoder. To build it:
+## Building the reference decoders
 
 ```sh
-git clone https://gitlab.com/AoMediaCodec/avm.git ../av2
-mkdir -p ../avm_build && cd ../avm_build
-cmake ../av2 -DCONFIG_AV2_ENCODER=0
-make -j$(nproc) avmdec
+git clone --depth 1 https://github.com/AOMediaCodec/avm.git ../avm_ref
+cmake -S ../avm_ref -B ../avm_build -G Ninja \
+  -DAOM_TARGET_CPU=generic -DCMAKE_BUILD_TYPE=Release
+ninja -C ../avm_build avmdec avmenc
+
+git clone --depth 1 https://code.videolan.org/videolan/dav2d.git ../dav2d
+meson setup ../dav2d/build ../dav2d --buildtype release
+ninja -C ../dav2d/build
 ```
 
 ## Roadmap

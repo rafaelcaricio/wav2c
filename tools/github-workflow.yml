@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, av2-v1.0.0-conformance]
+  pull_request:
+
+env:
+  AVM_COMMIT: ce1ec108a82b
+  DAV2D_COMMIT: ebdf83dffbf1152dd7f06aa0bc3a647041cd45e3
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build meson nasm python3 git curl
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache reference builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/../avm_ref
+            ${{ github.workspace }}/../avm_build
+            ${{ github.workspace }}/../dav2d
+          key: refs-${{ env.AVM_COMMIT }}-${{ env.DAV2D_COMMIT }}
+
+      - name: Build AVM reference tools
+        run: |
+          if [ ! -x ../avm_build/avmdec ]; then
+            rm -rf ../avm_ref ../avm_build
+            git clone --depth 1 https://github.com/AOMediaCodec/avm.git ../avm_ref
+            git -C ../avm_ref fetch --depth 1 origin "$AVM_COMMIT"
+            git -C ../avm_ref checkout "$AVM_COMMIT"
+            cmake -S ../avm_ref -B ../avm_build -G Ninja \
+              -DAOM_TARGET_CPU=generic -DCMAKE_BUILD_TYPE=Release
+            ninja -C ../avm_build avmdec avmenc
+          fi
+
+      - name: Build dav2d
+        run: |
+          if [ ! -x ../dav2d/build/tools/dav2d ]; then
+            rm -rf ../dav2d
+            git clone --depth 1 https://code.videolan.org/videolan/dav2d.git ../dav2d
+            git -C ../dav2d fetch --depth 1 origin "$DAV2D_COMMIT"
+            git -C ../dav2d checkout "$DAV2D_COMMIT"
+            meson setup ../dav2d/build ../dav2d --buildtype release
+            ninja -C ../dav2d/build
+          fi
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Test
+        env:
+          AVMDEC: ${{ github.workspace }}/../avm_build/avmdec
+          DAV2D: ${{ github.workspace }}/../dav2d/build/tools/dav2d
+        run: cargo test
+
+      - name: Clippy
+        run: cargo clippy --tests
