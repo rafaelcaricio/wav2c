@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV2 Multiview — 3 slides</title>
+<style>
+  :root {
+    --bg: #070908; --panel: #0c100e; --line: #22302a; --ink: #e8f1ea; --muted: #8aa091;
+    --accent: #c6ff3d; --amber: #ffb02e;
+    --display: "Bahnschrift", "DIN Condensed", "Archivo Narrow", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+    --body: "Optima", "Candara", "Avenir Next", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--body); }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 3px); z-index: 9; }
+  .deck { height: 100%; display: grid; }
+  .slide { display: none; padding: clamp(28px, 5vw, 72px); height: 100%; align-content: center; gap: clamp(18px, 2.4vw, 30px); }
+  .slide.active { display: grid; }
+  .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--accent); }
+  h1 { margin: 0; font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+       font-size: clamp(42px, 7vw, 88px); line-height: .95; }
+  h1 .thin { color: var(--muted); font-weight: 400; }
+  h2 { margin: 0; font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; font-size: clamp(30px, 4.2vw, 54px); }
+  p.lead { margin: 0; max-width: 60ch; font-size: clamp(16px, 1.7vw, 21px); line-height: 1.65; color: #c7d6c9; }
+  .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: clamp(24px, 4vw, 56px); align-items: center; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  ul.points { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; font-size: clamp(15px, 1.5vw, 18px); color: #c7d6c9; }
+  ul.points li { padding-left: 26px; position: relative; line-height: 1.55; }
+  ul.points li::before { content: "▸"; position: absolute; left: 0; color: var(--accent); }
+  .panel { background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 40%), var(--panel);
+           border: 1px solid var(--line); padding: clamp(18px, 2vw, 28px); }
+  .flow { display: grid; gap: 10px; font-family: var(--mono); font-size: 13px; }
+  .flow .row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center;
+               border: 1px solid var(--line); padding: 10px 14px; background: #101512; }
+  .flow .row b { color: var(--accent); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
+  .flow .row span { color: #cfdccf; }
+  .numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .numbers div { background: #101512; padding: 14px 16px; }
+  .numbers dt { font-family: var(--mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .numbers dd { margin: 0; font-family: var(--display); font-size: clamp(24px, 2.6vw, 34px); font-weight: 600; }
+  .numbers dd small { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 5px; text-transform: uppercase; }
+  .qr-wrap { display: grid; justify-items: center; gap: 18px; }
+  .qr-wrap img { width: min(340px, 60vw); border: 1px solid var(--line); background: #e8f1ea; padding: 10px; }
+  .url { font-family: var(--mono); font-size: clamp(13px, 1.5vw, 18px); color: var(--accent); letter-spacing: .04em; }
+  .note { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .05em; line-height: 1.8; max-width: 52ch; text-align: center; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
+           padding: 14px clamp(24px, 5vw, 72px); border-top: 1px solid var(--line);
+           font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .hint { color: #5d725f; }
+</style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide active" id="slide-1">
+      <div class="kicker">av2codec · av2 v1.0.0 · demo</div>
+      <h1>Four views.<br>One bitstream.<br><span class="thin">A canvas.</span></h1>
+      <p class="lead">
+        AV2 carries multiview as independent <strong>extended layers</strong>, described by a
+        layer configuration record and an <strong>atlas</strong> that says where each layer lands.
+        This demo encodes four layers — three synthetic sports feeds and your camera — into one
+        AV2 multistream and composes them into a single 2×2 frame canvas.
+      </p>
+      <ul class="points">
+        <li>LCR + atlas + MSDO metadata, no per-view container tricks</li>
+        <li>Every frame of the canvas is reconstructed from the AV2 bitstream</li>
+        <li>Runs entirely in the browser, no server, no native binaries</li>
+      </ul>
+    </section>
+
+    <section class="slide" id="slide-2">
+      <div class="crossover">
+        <div class="kicker">pipeline</div>
+        <h2>Encoded in the page</h2>
+      </div>
+      <div class="cols">
+        <div class="panel flow">
+          <div class="row"><b>capture</b><span>getUserMedia + 3 canvas feeds → 320×192 RGBA each</span></div>
+          <div class="row"><b>convert</b><span>RGBA → YUV420 in the WASM module</span></div>
+          <div class="row"><b>encode</b><span>av2codec · wasm32 · 4 layers, 2×2 atlas, qindex 150</span></div>
+          <div class="row"><b>bitstream</b><span>one AV2 temporal unit ≈ 3 KB (LCR, atlas, MSDO, 4 frames)</span></div>
+          <div class="row"><b>decode</b><span>av2codec decoder · wasm32 · 4 frames per unit</span></div>
+          <div class="row"><b>compose</b><span>row-major 2×2 → 640×384 canvas, 15 fps</span></div>
+        </div>
+        <div class="panel">
+          <dl class="numbers">
+            <div><dt>loop</dt><dd>15<small>fps</small></dd></div>
+            <div><dt>encode</dt><dd>37<small>ms</small></dd></div>
+            <div><dt>decode</dt><dd>3.6<small>ms</small></dd></div>
+            <div><dt>bitstream</dt><dd>3<small>kb/tu</small></dd></div>
+            <div><dt>module</dt><dd>717<small>kb wasm</small></dd></div>
+            <div><dt>layers</dt><dd>4<small>× 320×192</small></dd></div>
+          </dl>
+          <p class="note" style="text-align:left; margin-top:16px;">
+            The encoder is av2codec compiled to wasm32-unknown-unknown; the decoder is the same
+            crate's decoder. dav2d knows the OBU types but ignores LCR/atlas/MSDO, so it can only
+            emit layers sequentially — composition always belongs to the player.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="slide-3">
+      <div class="cols">
+        <div>
+          <div class="kicker">try it</div>
+          <h2>Your camera,<br>layer 3</h2>
+          <p class="lead" style="margin-top:18px;">
+            Scan the code, open the page, press <strong>Enable camera</strong>. The tab encodes
+            your webcam together with the three feeds, decodes the multistream and paints the
+            640×384 canvas at 15 fps.
+          </p>
+          <p class="note" style="text-align:left; margin-top:18px;">
+            Camera access needs a secure origin: use the localhost address on this machine
+            (<span class="url">http://localhost/av2-multiview/</span>) or the QR URL over the
+            tailnet. Without camera permission the loop still runs with a placeholder layer.
+          </p>
+        </div>
+        <div class="qr-wrap">
+          <img src="qr.png" alt="QR code for the demo">
+          <div class="url">http://100.105.22.91/av2-multiview/</div>
+          <div class="note">av2codec multiview · wasm rig</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="page">1 / 3</span>
+    <span class="hint">← → or space to navigate</span>
+  </footer>
+
+<script>
+  const slides = [...document.querySelectorAll(".slide")];
+  let current = 0;
+  function show(index) {
+    current = Math.max(0, Math.min(slides.length - 1, index));
+    slides.forEach((slide, position) => slide.classList.toggle("active", position === current));
+    document.getElementById("page").textContent = (current + 1) + " / " + slides.length;
+    history.replaceState(null, "", "#" + (current + 1));
+  }
+  document.addEventListener("keydown", (event) => {
+    if (["ArrowRight", "ArrowDown", " ", "PageDown"].includes(event.key)) { event.preventDefault(); show(current + 1); }
+    if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) { event.preventDefault(); show(current - 1); }
+    if (event.key === "Home") show(0);
+    if (event.key === "End") show(slides.length - 1);
+  });
+  document.addEventListener("click", () => show(current + 1));
+  const hash = parseInt(location.hash.slice(1), 10);
+  show(Number.isFinite(hash) ? hash - 1 : 0);
+</script>
+</body>
+</html>

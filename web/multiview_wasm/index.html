@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV2 Multiview — WASM rig</title>
+<style>
+  :root {
+    --bg: #070908;
+    --panel: #0c100e;
+    --line: #1e2a22;
+    --ink: #e8f1ea;
+    --muted: #7d947f;
+    --accent: #c6ff3d;
+    --amber: #ffb02e;
+    --live: #ff4b3a;
+    --display: "Bahnschrift", "DIN Condensed", "Archivo Narrow", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+    --body: "Optima", "Candara", "Avenir Next", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    color: var(--ink);
+    font-family: var(--body);
+    background:
+      radial-gradient(120% 90% at 10% 0%, rgba(198,255,61,0.05), transparent 55%),
+      radial-gradient(90% 80% at 100% 100%, rgba(255,176,46,0.05), transparent 60%),
+      var(--bg);
+  }
+  header {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 18px clamp(16px, 3vw, 40px) 14px; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-size: clamp(20px, 2.4vw, 30px); font-weight: 700; }
+  .brand .mark { color: var(--accent); }
+  .brand .sub { font-family: var(--mono); font-size: 11px; letter-spacing: .22em; color: var(--muted); font-weight: 400; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; border: 1px solid var(--line); padding: 7px 12px; }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  main { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr); gap: clamp(14px, 1.6vw, 22px); padding: clamp(14px, 1.6vw, 22px) clamp(16px, 3vw, 40px) 26px; align-items: start; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  .panel { position: relative; background: linear-gradient(180deg, rgba(255,255,255,.024), transparent 42%), var(--panel); border: 1px solid var(--line); padding: clamp(14px, 1.6vw, 22px); }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  h2 { margin: 0; font-family: var(--display); font-size: 13px; letter-spacing: .24em; text-transform: uppercase; font-weight: 600; }
+  .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .tag.accent { color: var(--accent); } .tag.amber { color: var(--amber); }
+  .screen { aspect-ratio: 5 / 3; border: 1px solid var(--line); background: repeating-linear-gradient(45deg, #0a0e0c 0 12px, #0b100d 12px 24px); overflow: hidden; position: relative; }
+  .screen canvas { display: block; width: 100%; height: 100%; image-rendering: auto; }
+  .layers { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; pointer-events: none; }
+  .layers span { position: relative; border: 1px solid rgba(198,255,61,.08); }
+  .layers b { position: absolute; left: 8px; top: 8px; padding: 5px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; letter-spacing: .18em; text-transform: uppercase; color: rgba(232,241,234,.86); background: rgba(6,9,7,.66); border: 1px solid rgba(198,255,61,.16); }
+  .layers span.camera { border-color: rgba(255,176,46,.4); }
+  .layers span.camera b { color: var(--amber); border-color: rgba(255,176,46,.5); }
+  .caption { margin: 12px 0 0; font-size: 13.5px; line-height: 1.65; color: var(--muted); max-width: 62ch; }
+  .caption strong { color: var(--ink); font-weight: 600; }
+  .rail { display: grid; gap: clamp(14px, 1.6vw, 22px); }
+  .camera { position: relative; aspect-ratio: 5 / 3; border: 1px solid var(--line); background: radial-gradient(80% 80% at 50% 50%, #101712, #090c0a 70%); overflow: hidden; }
+  .camera video { width: 100%; height: 100%; object-fit: cover; display: block; background: #050706; }
+  .veil { position: absolute; inset: 0; display: grid; place-items: center; gap: 14px; text-align: center; padding: 20px; background: linear-gradient(180deg, rgba(7,9,8,.35), rgba(7,9,8,.82)); transition: opacity .25s ease; }
+  .camera.live .veil { opacity: 0; pointer-events: none; }
+  .veil p { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); line-height: 1.8; }
+  button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #0a0d08; font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; padding: 12px 20px; cursor: pointer; }
+  button:hover { background: #d8ff7a; }
+  button:disabled { opacity: .55; cursor: progress; }
+  dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  dl > div { background: #101512; padding: 12px 12px 10px; }
+  dt { font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  dd { margin: 0; font-family: var(--display); font-size: clamp(20px, 2.4vw, 28px); font-weight: 600; font-variant-numeric: tabular-nums; }
+  dd small { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 5px; text-transform: uppercase; }
+  .pipeline { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .pipeline li { display: flex; justify-content: space-between; gap: 12px; }
+  .pipeline b { color: var(--ink); font-weight: 500; }
+  footer { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px clamp(16px, 3vw, 40px) 24px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  footer a { color: var(--accent); text-decoration: none; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="mark">AV2</span><span>Multiview</span>
+      <span class="sub">wasm rig · 2×2 · 4 layers · in-browser</span>
+    </div>
+    <div class="badge"><span class="dot"></span> <span id="status-badge">encoder booting</span></div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Decoded canvas · 640×384</h2>
+        <span class="tag accent" id="bitrate">— kb/s</span>
+      </div>
+      <div class="screen">
+        <canvas id="output" width="640" height="384"></canvas>
+        <div class="layers" aria-hidden="true">
+          <span><b>L0 · pitch</b></span>
+          <span><b>L1 · court</b></span>
+          <span><b>L2 · ring</b></span>
+          <span class="camera"><b>L3 · your camera</b></span>
+        </div>
+      </div>
+      <p class="caption">
+        Four extended layers encoded to one AV2 multistream <strong>inside this page</strong> by the
+        av2codec WASM encoder, decoded with the WASM decoder and composed into this canvas. No server,
+        no native code — the bitstream is created and consumed in the browser tab.
+      </p>
+    </section>
+
+    <aside class="rail">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Camera · layer 3</h2>
+          <span class="tag" id="camera-state">offline</span>
+        </div>
+        <div class="camera" id="camera-frame">
+          <video id="preview" playsinline muted autoplay class="hidden"></video>
+          <div class="veil">
+            <p>Grant camera access to join<br>the multiview as layer 3</p>
+            <button id="enable" type="button">Enable camera</button>
+          </div>
+        </div>
+        <p class="caption" id="camera-note">
+          Without a camera the layer shows a placeholder, so the encode/decode loop still runs.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Pipeline telemetry</h2>
+          <span class="tag" id="frame-index">frame —</span>
+        </div>
+        <dl>
+          <div><dt>loop</dt><dd id="fps">0.0<small>fps</small></dd></div>
+          <div><dt>bitstream</dt><dd id="tu">—<small>kb/tu</small></dd></div>
+          <div><dt>encode</dt><dd id="encode-ms">—<small>ms</small></dd></div>
+          <div><dt>decode</dt><dd id="decode-ms">—<small>ms</small></dd></div>
+        </dl>
+        <ul class="pipeline">
+          <li><span>encoder</span><b>av2codec · wasm32</b></li>
+          <li><span>decoder</span><b>av2codec decoder · wasm32</b></li>
+          <li><span>layers</span><b>4 × 320×192</b></li>
+          <li><span>canvas</span><b>640×384 · 2×2</b></li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>av2codec · multiview · wasm demo</span>
+    <span id="status-line">loading module…</span>
+  </footer>
+
+<script>
+"use strict";
+const VIEW_WIDTH = 320, VIEW_HEIGHT = 192;
+const VIEWS = 4, COLUMNS = 2, QINDEX = 150;
+const FRAME_SIZE = VIEW_WIDTH * VIEW_HEIGHT * 3 / 2;
+const SEND_FPS = 15;
+
+const output = document.getElementById("output");
+const outputContext = output.getContext("2d");
+const preview = document.getElementById("preview");
+const cameraFrame = document.getElementById("camera-frame");
+const enableButton = document.getElementById("enable");
+const cameraState = document.getElementById("camera-state");
+const cameraNote = document.getElementById("camera-note");
+const statusBadge = document.getElementById("status-badge");
+const statusLine = document.getElementById("status-line");
+
+const backgrounds = [0, 1, 2].map(() => {
+  const canvas = document.createElement("canvas");
+  canvas.width = VIEW_WIDTH;
+  canvas.height = VIEW_HEIGHT;
+  return canvas;
+});
+
+const cameraCanvas = document.createElement("canvas");
+cameraCanvas.width = VIEW_WIDTH;
+cameraCanvas.height = VIEW_HEIGHT;
+const cameraContext = cameraCanvas.getContext("2d", { willReadFrequently: true });
+const grabContexts = backgrounds.map((canvas) => canvas.getContext("2d", { willReadFrequently: true }));
+
+const state = { wasm: null, time: 0, frame: 0, encoding: false };
+
+function drawPitch(context, time) {
+  const t = time / 1000;
+  context.fillStyle = "#1f6b34";
+  context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+  context.strokeStyle = "rgba(235,255,240,.55)";
+  context.lineWidth = 2;
+  context.strokeRect(18, 16, VIEW_WIDTH - 36, VIEW_HEIGHT - 32);
+  context.beginPath();
+  context.moveTo(VIEW_WIDTH / 2, 16);
+  context.lineTo(VIEW_WIDTH / 2, VIEW_HEIGHT - 16);
+  context.stroke();
+  context.beginPath();
+  context.arc(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 34, 0, Math.PI * 2);
+  context.stroke();
+  const ballX = VIEW_WIDTH / 2 + Math.cos(t * 1.4) * 70;
+  const ballY = VIEW_HEIGHT / 2 + Math.sin(t * 1.9) * 40;
+  for (let player = 0; player < 5; player++) {
+    const px = 40 + player * 58 + Math.sin(t * 1.1 + player) * 12;
+    const py = 40 + (player % 2) * 100 + Math.cos(t * 1.3 + player * 2) * 9;
+    context.fillStyle = player % 2 ? "#e0e6ff" : "#ff5d4a";
+    context.beginPath();
+    context.arc(px, py, 6, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.fillStyle = "#f7f7f7";
+  context.beginPath();
+  context.arc(ballX, ballY, 5, 0, Math.PI * 2);
+  context.fill();
+}
+
+function drawCourt(context, time) {
+  const t = time / 1000;
+  context.fillStyle = "#c98546";
+  context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+  context.fillStyle = "#2f5fb3";
+  context.fillRect(0, VIEW_HEIGHT - 70, VIEW_WIDTH, 70);
+  context.strokeStyle = "rgba(255,255,255,.7)";
+  context.lineWidth = 2;
+  context.strokeRect(16, 14, VIEW_WIDTH - 32, VIEW_HEIGHT - 28);
+  context.beginPath();
+  context.moveTo(16, VIEW_HEIGHT - 70);
+  context.lineTo(VIEW_WIDTH - 16, VIEW_HEIGHT - 70);
+  context.stroke();
+  const hoopX = VIEW_WIDTH - 62;
+  context.strokeStyle = "#e8eef0";
+  context.beginPath();
+  context.moveTo(hoopX, 44);
+  context.lineTo(hoopX, 74);
+  context.stroke();
+  context.beginPath();
+  context.arc(hoopX - 8, 78, 11, 0, Math.PI * 2);
+  context.stroke();
+  const ballX = 90 + ((t * 46) % (VIEW_WIDTH - 160));
+  const bounce = Math.abs(Math.sin(t * 3.1));
+  const ballY = VIEW_HEIGHT - 74 - bounce * 96;
+  context.fillStyle = "#e46b2a";
+  context.beginPath();
+  context.arc(ballX, ballY, 8, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = "rgba(60,20,0,.6)";
+  context.beginPath();
+  context.arc(ballX, ballY, 8, 0, Math.PI * 2);
+  context.moveTo(ballX - 8, ballY);
+  context.lineTo(ballX + 8, ballY);
+  context.stroke();
+}
+
+function drawRing(context, time) {
+  const t = time / 1000;
+  context.fillStyle = "#0b1a1f";
+  context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+  context.fillStyle = "#123541";
+  context.fillRect(0, VIEW_HEIGHT - 52, VIEW_WIDTH, 52);
+  context.strokeStyle = "rgba(255,255,255,.35)";
+  for (let rope = 0; rope < 3; rope++) {
+    context.beginPath();
+    context.moveTo(0, 44 + rope * 22);
+    context.lineTo(VIEW_WIDTH, 44 + rope * 22);
+    context.stroke();
+  }
+  const leftX = VIEW_WIDTH / 2 - 64 + Math.sin(t * 2.2) * 22;
+  const rightX = VIEW_WIDTH / 2 + 64 + Math.cos(t * 2.0) * 22;
+  const y = VIEW_HEIGHT / 2 + 18 + Math.sin(t * 3.3) * 8;
+  context.fillStyle = "#df2c2c";
+  context.beginPath();
+  context.arc(leftX, y, 15, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#2b6be0";
+  context.beginPath();
+  context.arc(rightX, y, 15, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "rgba(255,255,255,.55)";
+  context.font = "10px monospace";
+  context.fillText("ROUND 3", 12, VIEW_HEIGHT - 16);
+}
+
+function drawPlaceholder(context, time) {
+  const t = time / 1000;
+  context.fillStyle = "#0b0f0d";
+  context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+  context.fillStyle = "rgba(198,255,61,.18)";
+  const shift = (t * 40) % 32;
+  for (let x = -32; x < VIEW_WIDTH; x += 32) {
+    context.fillRect(x + shift, 0, 2, VIEW_HEIGHT);
+  }
+  context.fillStyle = "rgba(232,241,234,.5)";
+  context.font = "11px monospace";
+  context.fillText("CAMERA OFFLINE", 12, VIEW_HEIGHT - 14);
+}
+
+function drawBackgrounds(time) {
+  drawPitch(grabContexts[0], time);
+  drawCourt(grabContexts[1], time);
+  drawRing(grabContexts[2], time);
+}
+
+function drawCamera(time) {
+  const target = cameraContext;
+  if (preview.srcObject && preview.videoWidth) {
+    const scale = Math.max(VIEW_WIDTH / preview.videoWidth, VIEW_HEIGHT / preview.videoHeight);
+    const width = VIEW_WIDTH / scale;
+    const height = VIEW_HEIGHT / scale;
+    target.drawImage(
+      preview,
+      (preview.videoWidth - width) / 2,
+      (preview.videoHeight - height) / 2,
+      width,
+      height,
+      0,
+      0,
+      VIEW_WIDTH,
+      VIEW_HEIGHT
+    );
+  } else {
+    drawPlaceholder(target, time);
+  }
+}
+
+async function loadWasm() {
+  const response = await fetch("av2codec.wasm");
+  const bytes = await response.arrayBuffer();
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  state.wasm = instance.exports;
+  statusBadge.textContent = "encoding live";
+  statusLine.textContent = "wasm module ready";
+}
+
+function wasmMemory() {
+  return new Uint8Array(state.wasm.memory.buffer);
+}
+
+function encodeFrame(time) {
+  const wasm = state.wasm;
+  const rgbaBuffer = wasm.av2_alloc(VIEW_WIDTH * VIEW_HEIGHT * 4);
+  const framesBuffer = wasm.av2_alloc(FRAME_SIZE * VIEWS);
+  drawBackgrounds(time);
+  drawCamera(time);
+  const sources = [...backgrounds, cameraCanvas];
+  for (let view = 0; view < VIEWS; view++) {
+    const data = sources[view].getContext("2d").getImageData(0, 0, VIEW_WIDTH, VIEW_HEIGHT).data;
+    wasmMemory().set(data, rgbaBuffer);
+    wasm.av2_convert_rgba(rgbaBuffer, VIEW_WIDTH, VIEW_HEIGHT, framesBuffer + view * FRAME_SIZE);
+  }
+  const started = performance.now();
+  const length = wasm.av2_encode_multiview(VIEWS, VIEW_WIDTH, VIEW_HEIGHT, QINDEX, COLUMNS, framesBuffer);
+  const encodeMs = performance.now() - started;
+  wasm.av2_free(rgbaBuffer, VIEW_WIDTH * VIEW_HEIGHT * 4);
+  wasm.av2_free(framesBuffer, FRAME_SIZE * VIEWS);
+  if (!length) {
+    statusLine.textContent = "encode failed";
+    return null;
+  }
+  const pointer = wasm.av2_result_ptr();
+  const temporalUnit = wasmMemory().slice(pointer, pointer + length);
+  const bitstreamBuffer = wasm.av2_alloc(length);
+  wasmMemory().set(temporalUnit, bitstreamBuffer);
+  const decodeStarted = performance.now();
+  const decodedLength = wasm.av2_decode(bitstreamBuffer, length);
+  const decodeMs = performance.now() - decodeStarted;
+  wasm.av2_free(bitstreamBuffer, length);
+  if (!decodedLength) {
+    statusLine.textContent = "decode failed";
+    return null;
+  }
+  const decodedPointer = wasm.av2_result_ptr();
+  const decoded = wasmMemory().slice(decodedPointer, decodedPointer + decodedLength);
+  const frameCount = new Uint32Array(decoded.buffer, 0, 1)[0];
+  const frameWidth = new Uint32Array(decoded.buffer, 4, 1)[0];
+  const frameHeight = new Uint32Array(decoded.buffer, 8, 1)[0];
+  if (frameWidth !== VIEW_WIDTH || frameHeight !== VIEW_HEIGHT) {
+    statusLine.textContent = "unexpected frame size " + frameWidth + "x" + frameHeight;
+  }
+  return { temporalUnit, decoded, frameCount, encodeMs, decodeMs, length };
+}
+
+function paintDecoded(decoded, frameCount) {
+  const canvasWidth = COLUMNS * VIEW_WIDTH;
+  const canvasHeight = Math.ceil(frameCount / COLUMNS) * VIEW_HEIGHT;
+  const viewLuma = VIEW_WIDTH * VIEW_HEIGHT;
+  const viewChroma = (VIEW_WIDTH / 2) * (VIEW_HEIGHT / 2);
+  const frameBytes = viewLuma + 2 * viewChroma;
+  output.width = canvasWidth;
+  output.height = canvasHeight;
+  const image = outputContext.createImageData(canvasWidth, canvasHeight);
+  const pixels = image.data;
+  for (let frame = 0; frame < Math.min(frameCount, 4); frame++) {
+    const base = 12 + frame * frameBytes;
+    const column = frame % COLUMNS;
+    const row = Math.floor(frame / COLUMNS);
+    for (let y = 0; y < VIEW_HEIGHT; y++) {
+      for (let x = 0; x < VIEW_WIDTH; x++) {
+        const sourceY = decoded[base + y * VIEW_WIDTH + x];
+        const chromaIndex = base + viewLuma + Math.floor(y / 2) * (VIEW_WIDTH / 2) + Math.floor(x / 2);
+        const sourceU = decoded[chromaIndex] - 128;
+        const sourceV = decoded[chromaIndex + viewChroma] - 128;
+        const red = sourceY + 1.402 * sourceV;
+        const green = sourceY - 0.344136 * sourceU - 0.714136 * sourceV;
+        const blue = sourceY + 1.772 * sourceU;
+        const offset = ((row * VIEW_HEIGHT + y) * canvasWidth + (column * VIEW_WIDTH + x)) * 4;
+        pixels[offset] = Math.max(0, Math.min(255, red));
+        pixels[offset + 1] = Math.max(0, Math.min(255, green));
+        pixels[offset + 2] = Math.max(0, Math.min(255, blue));
+        pixels[offset + 3] = 255;
+      }
+    }
+  }
+  outputContext.putImageData(image, 0, 0);
+}
+
+function updateStats(result, loopMs) {
+  document.getElementById("fps").innerHTML = (1000 / loopMs).toFixed(1) + "<small>fps</small>";
+  document.getElementById("tu").innerHTML = Math.round(result.length / 1024) + "<small>kb/tu</small>";
+  document.getElementById("encode-ms").innerHTML = result.encodeMs.toFixed(1) + "<small>ms</small>";
+  document.getElementById("decode-ms").innerHTML = result.decodeMs.toFixed(1) + "<small>ms</small>";
+  document.getElementById("bitrate").textContent = ((result.length * 8 * (1000 / loopMs)) / 1000).toFixed(0) + " kb/s";
+  document.getElementById("frame-index").textContent = "frame " + state.frame;
+}
+
+function startLoop() {
+  if (!state.wasm) return;
+  const freeze = new URLSearchParams(location.search).has("freeze");
+  const targetInterval = 1000 / SEND_FPS;
+  let last = 0;
+  let painted = 0;
+  function tick(now) {
+    if (last === 0) last = now;
+    if (now - last >= targetInterval) {
+      const loopMs = now - last;
+      const result = encodeFrame(now);
+      if (result) {
+        paintDecoded(result.decoded, result.frameCount);
+        state.frame += 1;
+        updateStats(result, loopMs);
+        painted += 1;
+      }
+      last = now;
+      if (freeze && painted >= 40) return;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+async function startCamera() {
+  enableButton.disabled = true;
+  cameraState.textContent = "requesting";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+      audio: false,
+    });
+    preview.srcObject = stream;
+    preview.classList.remove("hidden");
+    await preview.play();
+    cameraFrame.classList.add("live");
+    cameraState.textContent = "live";
+    cameraNote.textContent = "Camera frames are encoded as extended layer 3.";
+    statusLine.textContent = "camera live";
+  } catch (error) {
+    enableButton.disabled = false;
+    cameraState.textContent = "denied";
+    cameraNote.textContent = "Camera access failed: " + error.message;
+    statusLine.textContent = "camera blocked";
+  }
+}
+
+enableButton.addEventListener("click", startCamera);
+const autostart = new URLSearchParams(location.search).has("autostart");
+loadWasm()
+  .then(() => (autostart ? startCamera() : Promise.resolve()))
+  .then(() => startLoop())
+  .catch((error) => {
+    statusLine.textContent = "wasm load failed: " + error.message;
+  });
+</script>
+</body>
+</html>

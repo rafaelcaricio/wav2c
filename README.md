@@ -90,6 +90,11 @@ Two end-to-end demos are available:
   four sports clips in a 2x2 atlas, decoded together and composed into one
   1280x768 canvas with realtime encode measurements;
   `python3 tools/sports_multiview_demo.py`.
+- [in-browser WASM demo](docs/reports/2026-10-18-wasm-multiview-demo.md) and
+  [three slides](web/slides/index.html): the encoder and decoder compiled to
+  wasm32 run in the page, with a QR code on the last slide;
+  `tools/build_wasm_demo.sh` then open `web/multiview_wasm/index.html` over a
+  local server.
 - [live camera multiview](docs/reports/2026-10-18-live-camera-multiview-demo.md):
   a web page asks for camera access and streams the camera into layer 3 of a
   2x2 AV2 multistream, decoded and composed back into the page at 15 fps;

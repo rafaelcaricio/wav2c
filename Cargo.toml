@@ -7,4 +7,7 @@ description = "AV2 video codec encoder and decoder"
 license = "MIT"
 publish = ["crates-io"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
