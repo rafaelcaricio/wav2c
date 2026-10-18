@@ -413,10 +413,19 @@ Details that matter for conformance:
   `MULTIVIEW_PLAYBACK`.
 - **Atlas geometry.** `AtlasLayout::Row` emits one column per view, one row with
   the maximum view height; `Column` emits one row per view, one column with the
-  maximum view width. `ats_uniform_spacing_flag = 0` whenever view sizes differ,
+  maximum view width; `Grid { columns }` emits a `columns x rows` grid with
+  row-major view placement (the view count must divide evenly). Column widths
+  and row heights are the maxima of the views in them.
+  `ats_uniform_spacing_flag = 0` whenever view sizes differ,
   `ats_single_region_per_atlas_segment_flag = 1` so each region is one segment,
   and segment ids are the view indices. `lcr_enforce_tile_alignment_flag` is set
   only when all views share one size.
+- **Threading.** `encode_multiview_with_threads` encodes the views of each
+  temporal unit on separate threads and emits them in ascending xlayer order;
+  the output is byte-identical to the single-threaded path. Measured on a
+  Ryzen 9 7900X: 4 x 640x384 at 15 fps encodes at 9.9 fps on one thread and
+  35.6 fps on four, so the 2x2 sports wall runs at 2.4x realtime
+  (see the [sports demo](2026-10-18-sports-multiview-demo.md)).
 - The spec's §5.2.2 `obu_extension_flag` (0) is written before the trailing bits
   of every extensible OBU (sequence header, LCR, atlas); `avmdec` reads it.
 

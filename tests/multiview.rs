@@ -5,7 +5,8 @@ use std::process::Command;
 
 use av2codec::multiview::{
     AtlasLayout, MultiviewConfig, MultiviewView, PURPOSE_MULTIVIEW_PLAYBACK,
-    PURPOSE_STEREOSCOPIC_VIEWPORTS, encode_multiview, extract_layer, stereo_view_types,
+    PURPOSE_STEREOSCOPIC_VIEWPORTS, encode_multiview, encode_multiview_with_threads,
+    extract_layer, stereo_view_types,
 };
 
 const WIDTH: u32 = 64;
@@ -410,4 +411,63 @@ fn cli_encodes_stereoscopic_pair() {
     let frames = av2codec::Decoder::decode_all(&layer).expect("decode extracted layer");
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].y[0], 126, "extracted right view luma");
+}
+
+fn four_view_grid() -> Vec<MultiviewView> {
+    (0..4)
+        .map(|index| {
+            MultiviewView::explicit_view(WIDTH, HEIGHT, index, view_frames(index * 48))
+        })
+        .collect()
+}
+
+#[test]
+fn grid_layout_maps_views_to_row_major_segments() {
+    if avmdec_path().is_none() {
+        eprintln!("SKIP: avmdec not found");
+        return;
+    }
+
+    let views = four_view_grid();
+    let config = MultiviewConfig {
+        base_qindex: 0,
+        purpose_id: PURPOSE_MULTIVIEW_PLAYBACK,
+        layout: AtlasLayout::Grid { columns: 2 },
+        views: &views,
+    };
+    let bitstream = encode_multiview(&config).expect("encode multiview");
+    std::fs::write("/tmp/multiview_grid.obu", &bitstream).unwrap();
+
+    let decoded = decode_multistream(4, "/tmp/multiview_grid.obu", "/tmp/multiview_grid.yuv");
+    for (index, view) in views.iter().enumerate() {
+        assert_eq!(decoded[index], planes(&view.frames[0]), "view {index}");
+    }
+}
+
+#[test]
+fn grid_layout_rejects_column_count_that_does_not_divide_views() {
+    let views = four_view_grid();
+    let config = MultiviewConfig {
+        base_qindex: 50,
+        purpose_id: PURPOSE_MULTIVIEW_PLAYBACK,
+        layout: AtlasLayout::Grid { columns: 3 },
+        views: &views,
+    };
+    assert!(encode_multiview(&config).is_err());
+}
+
+#[test]
+fn parallel_encoding_matches_sequential_output() {
+    let views = four_view_grid();
+    let config = MultiviewConfig {
+        base_qindex: 50,
+        purpose_id: PURPOSE_MULTIVIEW_PLAYBACK,
+        layout: AtlasLayout::Grid { columns: 2 },
+        views: &views,
+    };
+    let sequential = encode_multiview(&config).expect("encode multiview");
+    for threads in [2, 4] {
+        let parallel = encode_multiview_with_threads(&config, threads).expect("encode multiview");
+        assert_eq!(parallel, sequential, "threads={threads}");
+    }
 }

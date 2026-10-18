@@ -16,4 +16,7 @@ pub mod y4m;
 
 pub use decode::{DecodeError, DecodedFrame, Decoder};
 pub use encode::{EncodeError, Encoder, Packet};
-pub use multiview::{AtlasLayout, MultiviewConfig, MultiviewView, encode_multiview, extract_layer};
+pub use multiview::{
+    AtlasLayout, MultiviewConfig, MultiviewView, encode_multiview,
+    encode_multiview_with_threads, extract_layer,
+};

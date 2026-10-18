@@ -3,7 +3,7 @@ use std::process;
 use av2codec::encode;
 use av2codec::multiview::{
     AtlasLayout, MultiviewConfig, MultiviewView, PURPOSE_MULTIVIEW_PLAYBACK,
-    PURPOSE_STEREOSCOPIC_VIEWPORTS, ViewFrame, encode_multiview, extract_layer,
+    PURPOSE_STEREOSCOPIC_VIEWPORTS, ViewFrame, encode_multiview_with_threads, extract_layer,
     stereo_view_types,
 };
 use av2codec::y4m::Y4mReader;
@@ -15,7 +15,9 @@ fn usage() -> ! {
          Options:\n\
            --qindex N          quantization index (0-255, default 50)\n\
            --multiview         encode all inputs as extended layers of one multiview stream\n\
-           --layout row|column atlas grid direction for multiview (default row)\n\
+           --layout row|column|grid   atlas grid for multiview (default row)\n\
+           --columns N         grid columns for --layout grid (default 2)\n\
+           --threads N         per-view encoder threads (0 = one per view)\n\
            --purpose stereo|multiview  global LCR purpose id (default by view count)\n\
            --extract-layer N   write only extended layer N of the encoded stream"
     );
@@ -49,6 +51,8 @@ fn main() {
     let mut layout = AtlasLayout::Row;
     let mut purpose: Option<u8> = None;
     let mut extract: Option<u8> = None;
+    let mut columns: u8 = 2;
+    let mut threads: usize = 0;
 
     let mut i = 1;
     while i < args.len() {
@@ -70,11 +74,35 @@ fn main() {
                 layout = match args.get(i).map(String::as_str) {
                     Some("row") => AtlasLayout::Row,
                     Some("column") => AtlasLayout::Column,
+                    Some("grid") => AtlasLayout::Grid { columns },
                     _ => {
-                        eprintln!("Error: --layout expects row or column");
+                        eprintln!("Error: --layout expects row, column or grid");
                         process::exit(1);
                     }
                 };
+            }
+            "--columns" => {
+                i += 1;
+                columns = args
+                    .get(i)
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or_else(|| {
+                        eprintln!("Error: --columns expects a positive number");
+                        process::exit(1);
+                    });
+                if let AtlasLayout::Grid { .. } = layout {
+                    layout = AtlasLayout::Grid { columns };
+                }
+            }
+            "--threads" => {
+                i += 1;
+                threads = args
+                    .get(i)
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or_else(|| {
+                        eprintln!("Error: --threads expects a number");
+                        process::exit(1);
+                    });
             }
             "--purpose" => {
                 i += 1;
@@ -176,7 +204,12 @@ fn main() {
         base_qindex,
         purpose_id
     );
-    let bitstream = encode_multiview(&config).unwrap_or_else(|e| {
+    let workers = if threads == 0 {
+        views.len().min(std::thread::available_parallelism().map_or(1, |value| value.get()))
+    } else {
+        threads
+    };
+    let bitstream = encode_multiview_with_threads(&config, workers).unwrap_or_else(|e| {
         eprintln!("Error encoding multiview: {}", e);
         process::exit(1);
     });

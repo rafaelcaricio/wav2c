@@ -6,6 +6,7 @@ use crate::bitstream::{
 };
 use crate::bitstream::sequence::compute_level;
 use crate::encode::{EncodeError, encode_intra_frame_payload, round_up_to_64};
+use std::thread;
 
 pub const GLOBAL_XLAYER_ID: u8 = 31;
 pub const GLOBAL_LCR_ID: u8 = 1;
@@ -23,6 +24,7 @@ pub type ViewFrame = (Vec<u8>, Vec<u8>, Vec<u8>);
 pub enum AtlasLayout {
     Row,
     Column,
+    Grid { columns: u8 },
 }
 
 pub struct MultiviewView {
@@ -96,6 +98,13 @@ pub fn stereo_view_types() -> (u8, u8) {
 }
 
 pub fn encode_multiview(config: &MultiviewConfig<'_>) -> Result<Vec<u8>, EncodeError> {
+    encode_multiview_with_threads(config, 1)
+}
+
+pub fn encode_multiview_with_threads(
+    config: &MultiviewConfig<'_>,
+    threads: usize,
+) -> Result<Vec<u8>, EncodeError> {
     validate(config)?;
 
     let padded: Vec<(u32, u32)> = config
@@ -213,7 +222,8 @@ pub fn encode_multiview(config: &MultiviewConfig<'_>) -> Result<Vec<u8>, EncodeE
             &atlas_payload,
         ));
 
-        for (view_index, view) in config.views.iter().enumerate() {
+        let frame_payloads = encode_frame_payloads(config, frame_index, threads);
+        for (view_index, payload) in frame_payloads.iter().enumerate() {
             let xlayer_id = view_index as u8;
             output.extend_from_slice(&ObuWriter::pack_obu_with_layer(
                 ObuType::LayerConfigurationRecord,
@@ -229,22 +239,12 @@ pub fn encode_multiview(config: &MultiviewConfig<'_>) -> Result<Vec<u8>, EncodeE
                 xlayer_id,
                 &sequence_payloads[view_index],
             ));
-            let (y, u, v) = &view.frames[frame_index];
-            let payload = encode_intra_frame_payload(
-                view.width,
-                view.height,
-                config.base_qindex,
-                frame_index as u32,
-                y,
-                u,
-                v,
-            );
             output.extend_from_slice(&ObuWriter::pack_obu_with_layer(
                 ObuType::Clk,
                 0,
                 0,
                 xlayer_id,
-                &payload,
+                payload,
             ));
         }
     }
@@ -311,6 +311,7 @@ fn validate(config: &MultiviewConfig<'_>) -> Result<(), EncodeError> {
             }
         }
     }
+    validate_layout(config.layout, count)?;
     let frame_count = config.views[0].frames.len();
     if config.views.iter().any(|view| view.frames.len() != frame_count) {
         return Err(EncodeError::InvalidMultiview(
@@ -318,6 +319,61 @@ fn validate(config: &MultiviewConfig<'_>) -> Result<(), EncodeError> {
         ));
     }
     Ok(())
+}
+
+fn validate_layout(layout: AtlasLayout, views: usize) -> Result<(), EncodeError> {
+    match layout {
+        AtlasLayout::Grid { columns } if columns == 0 || !views.is_multiple_of(columns as usize) => {
+            Err(EncodeError::InvalidMultiview(
+                "grid layouts need a column count that divides the view count",
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn encode_frame_payloads(
+    config: &MultiviewConfig<'_>,
+    frame_index: usize,
+    threads: usize,
+) -> Vec<Vec<u8>> {
+    let encode = |view: &MultiviewView| {
+        let (y, u, v) = &view.frames[frame_index];
+        encode_intra_frame_payload(
+            view.width,
+            view.height,
+            config.base_qindex,
+            frame_index as u32,
+            y,
+            u,
+            v,
+        )
+    };
+
+    let views = config.views;
+    let workers = threads.min(views.len()).max(1);
+    if workers == 1 {
+        return views.iter().map(encode).collect();
+    }
+
+    thread::scope(|scope| {
+        let handles: Vec<_> = views
+            .iter()
+            .map(|view| scope.spawn(move || encode_intra_frame_payload(
+                view.width,
+                view.height,
+                config.base_qindex,
+                frame_index as u32,
+                &view.frames[frame_index].0,
+                &view.frames[frame_index].1,
+                &view.frames[frame_index].2,
+            )))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("view encoder thread"))
+            .collect()
+    })
 }
 
 fn atlas_grid(layout: AtlasLayout, padded: &[(u32, u32)]) -> (Vec<u32>, Vec<u32>) {
@@ -330,6 +386,27 @@ fn atlas_grid(layout: AtlasLayout, padded: &[(u32, u32)]) -> (Vec<u32>, Vec<u32>
             vec![padded.iter().map(|&(width, _)| width).max().unwrap()],
             padded.iter().map(|&(_, height)| height).collect(),
         ),
+        AtlasLayout::Grid { columns } => {
+            let columns = columns as usize;
+            let rows = padded.len() / columns;
+            let column_widths = (0..columns)
+                .map(|column| {
+                    (0..rows)
+                        .map(|row| padded[row * columns + column].0)
+                        .max()
+                        .unwrap()
+                })
+                .collect();
+            let row_heights = (0..rows)
+                .map(|row| {
+                    (0..columns)
+                        .map(|column| padded[row * columns + column].1)
+                        .max()
+                        .unwrap()
+                })
+                .collect();
+            (column_widths, row_heights)
+        }
     }
 }
 
