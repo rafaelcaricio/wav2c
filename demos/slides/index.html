@@ -113,14 +113,14 @@
             640×384 canvas at 15 fps.
           </p>
           <p class="note" style="text-align:left; margin-top:18px;">
-            Camera access needs a secure origin: use the localhost address on this machine
-            (<span class="url">http://localhost/av2-multiview/</span>) or the QR URL over the
-            tailnet. Without camera permission the loop still runs with a placeholder layer.
+            The hosted URL is HTTPS, so the camera works from any device that can reach it.
+            Opening the files locally still works on <span class="url">http://localhost/</span>;
+            plain HTTP on a LAN address blocks the camera, and the page explains why.
           </p>
         </div>
         <div class="qr-wrap">
           <img src="qr.png" alt="QR code for the demo">
-          <div class="url">http://100.105.22.91/av2-multiview/</div>
+          <div class="url">https://static.caric.io/vdd26/av2demo</div>
           <div class="note">av2codec multiview · wasm rig</div>
         </div>
       </div>

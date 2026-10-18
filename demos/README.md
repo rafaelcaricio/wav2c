@@ -86,6 +86,10 @@ slide carries the QR code for the hosted demo. Serve the directory, e.g.:
 python3 -m http.server 8081 --directory demos/slides
 ```
 
+The hosted copy lives at <https://static.caric.io/vdd26/av2demo>; the QR code on
+slide 3 points there. To publish, upload `demos/wasm-multiview/index.html` and
+`demos/wasm-multiview/av2codec.wasm` next to each other (the page fetches the
+module with a relative path) and serve them over HTTPS so the camera works.
 Update the URL in `index.html` and regenerate `qr.png` when hosting elsewhere.
 
 ## Notes

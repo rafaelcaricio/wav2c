@@ -1,8 +1,7 @@
 # In-browser AV2 multiview (WASM) and the three demo slides
 
-Single-page demo: <http://100.105.22.91/av2-multiview/> (on this machine also
-`http://localhost/av2-multiview/`), slides at
-<http://100.105.22.91/av2-multiview/slides/>.
+Hosted single-page demo: <https://static.caric.io/vdd26/av2demo>. The slides
+live in `demos/slides/` and are served separately.
 
 ## What runs in the page
 
@@ -50,9 +49,10 @@ replaces that call (and composition stays in JS either way).
 ## Slides
 
 `demos/slides/index.html`, three slides, arrow keys/space to navigate, QR code on
-the last slide pointing at the hosted page. Camera access needs a secure origin:
-`localhost` works; over the tailnet IP the page runs but the browser blocks
-`getUserMedia` until the origin is HTTPS (port-forward or TLS proxy).
+the last slide pointing at <https://static.caric.io/vdd26/av2demo>. The hosted
+URL is HTTPS, so remote devices can use their camera; serving the files locally
+also works on `http://localhost`, while plain HTTP on a LAN address blocks
+`getUserMedia`.
 
 ## Camera on a LAN (HTTP) origin
 
