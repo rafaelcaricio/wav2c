@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV2 Multiview — Live Rig</title>
+<style>
+  :root {
+    --bg: #070908;
+    --panel: #0c100e;
+    --panel-raised: #101512;
+    --line: #1e2a22;
+    --line-strong: #2c3d32;
+    --ink: #e8f1ea;
+    --muted: #7d947f;
+    --accent: #c6ff3d;
+    --amber: #ffb02e;
+    --live: #ff4b3a;
+    --display: "Bahnschrift", "DIN Condensed", "Archivo Narrow", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, "Cascadia Mono", monospace;
+    --body: "Optima", "Candara", "Avenir Next", "Segoe UI", sans-serif;
+    --space: clamp(14px, 1.6vw, 22px);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      radial-gradient(120% 90% at 12% 0%, rgba(198, 255, 61, 0.05), transparent 55%),
+      radial-gradient(90% 80% at 100% 100%, rgba(255, 176, 46, 0.05), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--body);
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px);
+    mix-blend-mode: screen;
+    z-index: 9;
+  }
+
+  header.topbar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px clamp(16px, 3vw, 42px) 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: clamp(20px, 2.3vw, 30px);
+    font-weight: 700;
+  }
+
+  .brand .mark {
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+
+  .brand .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    padding: 7px 12px;
+    background: linear-gradient(180deg, rgba(255,75,58,0.08), transparent);
+  }
+
+  .live-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--live);
+    box-shadow: 0 0 0 0 rgba(255, 75, 58, 0.55);
+    animation: pulse 2.4s ease-out infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(255, 75, 58, 0.55); }
+    70% { box-shadow: 0 0 0 9px rgba(255, 75, 58, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 75, 58, 0); }
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr);
+    gap: var(--space);
+    padding: var(--space) clamp(16px, 3vw, 42px) 28px;
+    align-items: start;
+  }
+
+  @media (max-width: 980px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.024), transparent 42%),
+      var(--panel);
+    border: 1px solid var(--line);
+    padding: var(--space);
+  }
+
+  .panel::before,
+  .panel::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--line-strong);
+    pointer-events: none;
+  }
+
+  .panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 13px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .tag.accent { color: var(--accent); }
+  .tag.amber { color: var(--amber); }
+  .tag.live { color: var(--live); }
+
+  .canvas-frame {
+    position: relative;
+    aspect-ratio: 5 / 3;
+    background:
+      repeating-linear-gradient(45deg, #0a0e0c 0 12px, #0b100d 12px 24px);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .canvas-frame img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 500ms ease;
+    image-rendering: auto;
+  }
+
+  .canvas-frame img.ready { opacity: 1; }
+
+  .layers {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    pointer-events: none;
+  }
+
+  .layers span {
+    position: relative;
+    border: 1px solid rgba(198, 255, 61, 0.09);
+  }
+
+  .layers span b {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(232, 241, 234, 0.86);
+    background: rgba(6, 9, 7, 0.66);
+    border: 1px solid rgba(198, 255, 61, 0.16);
+    backdrop-filter: blur(3px);
+  }
+
+  .layers span.camera {
+    border-color: rgba(255, 176, 46, 0.4);
+  }
+
+  .layers span.camera b {
+    color: var(--amber);
+    border-color: rgba(255, 176, 46, 0.5);
+    background: rgba(6, 9, 7, 0.72);
+  }
+
+  .caption {
+    margin: 12px 0 0;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--muted);
+    max-width: 62ch;
+  }
+
+  .caption strong { color: var(--ink); font-weight: 600; }
+
+  .rail { display: grid; gap: var(--space); }
+
+  .camera-frame {
+    position: relative;
+    aspect-ratio: 5 / 3;
+    border: 1px solid var(--line);
+    background:
+      radial-gradient(80% 80% at 50% 50%, #101712, #090c0a 70%);
+    overflow: hidden;
+  }
+
+  .camera-frame video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: saturate(0.92) contrast(1.04);
+    background: #050706;
+  }
+
+  .camera-frame .veil {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    gap: 14px;
+    text-align: center;
+    padding: 20px;
+    background: linear-gradient(180deg, rgba(7,9,8,0.35), rgba(7,9,8,0.82));
+    transition: opacity 260ms ease;
+  }
+
+  .camera-frame.live .veil { opacity: 0; pointer-events: none; }
+
+  .camera-frame .veil p {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  button.enable {
+    appearance: none;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #0a0d08;
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: transform 120ms ease, background 160ms ease, color 160ms ease;
+  }
+
+  button.enable:hover { transform: translateY(-1px); background: #d8ff7a; }
+  button.enable:active { transform: translateY(0); }
+  button.enable:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  button.enable[disabled] { opacity: 0.55; cursor: progress; }
+
+  .telemetry dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+
+  .telemetry dl > div {
+    background: var(--panel-raised);
+    padding: 12px 12px 10px;
+  }
+
+  .telemetry dt {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .telemetry dd {
+    margin: 0;
+    font-family: var(--display);
+    font-size: clamp(22px, 2.6vw, 30px);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .telemetry dd small {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-left: 5px;
+    text-transform: uppercase;
+  }
+
+  .pipeline {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .pipeline li { display: flex; justify-content: space-between; gap: 12px; }
+  .pipeline li b { color: var(--ink); font-weight: 500; }
+
+  footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 14px clamp(16px, 3vw, 42px) 24px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">AV2</span>
+      <span>Multiview</span>
+      <span class="sub">live rig · 2×2 · 4 layers</span>
+    </div>
+    <div class="live-badge"><span class="dot"></span> encoding live</div>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="canvas-title">
+      <div class="panel-head">
+        <h2 id="canvas-title">Decoded canvas · 1280×768</h2>
+        <span class="tag accent" id="bitrate">— kb/s</span>
+      </div>
+      <div class="canvas-frame">
+        <img id="canvas" src="/canvas.mjpg" alt="Live AV2 multiview canvas decoded from the bitstream">
+        <div class="layers" aria-hidden="true">
+          <span><b>L0 · background</b></span>
+          <span><b>L1 · background</b></span>
+          <span><b>L2 · background</b></span>
+          <span class="camera"><b>L3 · your camera</b></span>
+        </div>
+      </div>
+      <p class="caption">
+        Four extended layers, one AV2 multistream. Three looping background clips plus
+        <strong>your camera</strong> as layer 3 are encoded, decoded and composed into this
+        canvas by the local server — every frame above has been through the AV2 bitstream.
+      </p>
+    </section>
+
+    <aside class="rail">
+      <section class="panel" aria-labelledby="camera-title">
+        <div class="panel-head">
+          <h2 id="camera-title">Camera · layer 3</h2>
+          <span class="tag" id="camera-state">offline</span>
+        </div>
+        <div class="camera-frame" id="camera-frame">
+          <video id="preview" playsinline muted autoplay></video>
+          <div class="veil">
+            <p>Grant camera access to join<br>the multiview as layer 3</p>
+            <button class="enable" id="enable" type="button">Enable camera</button>
+          </div>
+        </div>
+        <p class="caption" id="camera-note">
+          The browser sends 640×384 frames to the encoder. Open this page through
+          <strong>localhost</strong> so camera access is allowed.
+        </p>
+      </section>
+
+      <section class="panel telemetry" aria-labelledby="telemetry-title">
+        <div class="panel-head">
+          <h2 id="telemetry-title">Pipeline telemetry</h2>
+          <span class="tag" id="frame-index">frame —</span>
+        </div>
+        <dl>
+          <div><dt>encode</dt><dd id="fps">0.0<small>fps</small></dd></div>
+          <div><dt>bitstream</dt><dd id="tu">—<small>b/tu</small></dd></div>
+          <div><dt>encode time</dt><dd id="encode-ms">—<small>ms</small></dd></div>
+          <div><dt>decode+compose</dt><dd id="decode-ms">—<small>ms</small></dd></div>
+        </dl>
+        <ul class="pipeline">
+          <li><span>camera → yuv420</span><b id="cam-frames">0 frames</b></li>
+          <li><span>av2 encode</span><b>lcr + atlas + msdo</b></li>
+          <li><span>av2 decode</span><b>in-process</b></li>
+          <li><span>compose</span><b>2×2 grid · 1280×768</b></li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>av2codec · multiview encoder · <a href="/stats">/stats</a></span>
+    <span id="status-line">waiting for camera</span>
+  </footer>
+
+<script>
+  const VIEW_WIDTH = 640;
+  const VIEW_HEIGHT = 384;
+  const SEND_FPS = 15;
+
+  const video = document.getElementById("preview");
+  const canvasImage = document.getElementById("canvas");
+  const cameraFrame = document.getElementById("camera-frame");
+  const enableButton = document.getElementById("enable");
+  const cameraState = document.getElementById("camera-state");
+  const cameraNote = document.getElementById("camera-note");
+  const statusLine = document.getElementById("status-line");
+  const grab = document.createElement("canvas");
+  grab.width = VIEW_WIDTH;
+  grab.height = VIEW_HEIGHT;
+  const context = grab.getContext("2d", { willReadFrequently: true });
+
+  let streaming = false;
+
+  function drawCover(target) {
+    const sourceWidth = target.videoWidth;
+    const sourceHeight = target.videoHeight;
+    if (!sourceWidth || !sourceHeight) return null;
+    const scale = Math.max(VIEW_WIDTH / sourceWidth, VIEW_HEIGHT / sourceHeight);
+    const cropWidth = VIEW_WIDTH / scale;
+    const cropHeight = VIEW_HEIGHT / scale;
+    context.drawImage(
+      target,
+      (sourceWidth - cropWidth) / 2,
+      (sourceHeight - cropHeight) / 2,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      VIEW_WIDTH,
+      VIEW_HEIGHT
+    );
+    return context.getImageData(0, 0, VIEW_WIDTH, VIEW_HEIGHT).data;
+  }
+
+  async function sendFrames() {
+    if (streaming) return;
+    streaming = true;
+    const interval = 1000 / SEND_FPS;
+    while (video.srcObject) {
+      const started = performance.now();
+      const pixels = drawCover(video);
+      if (pixels) {
+        try {
+          await fetch("/frame", { method: "POST", body: pixels });
+        } catch (error) {
+          statusLine.textContent = "encoder offline — retrying";
+        }
+      }
+      const elapsed = performance.now() - started;
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, interval - elapsed)));
+    }
+    streaming = false;
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      cameraState.textContent = "unsupported";
+      cameraState.className = "tag live";
+      cameraNote.textContent = "This browser does not expose getUserMedia.";
+      return;
+    }
+    enableButton.disabled = true;
+    cameraState.textContent = "requesting";
+    cameraState.className = "tag amber";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      cameraFrame.classList.add("live");
+      cameraState.textContent = "live";
+      cameraState.className = "tag amber";
+      cameraNote.textContent = "Camera frames are streaming into extended layer 3.";
+      statusLine.textContent = "camera live · encoding";
+      sendFrames();
+    } catch (error) {
+      enableButton.disabled = false;
+      cameraState.textContent = "denied";
+      cameraState.className = "tag live";
+      cameraNote.textContent = "Camera access failed: " + error.message;
+      statusLine.textContent = "camera blocked";
+    }
+  }
+
+  enableButton.addEventListener("click", startCamera);
+
+  const autostart = new URLSearchParams(window.location.search).has("autostart");
+  if (autostart) {
+    window.addEventListener("load", () => startCamera());
+  }
+
+  canvasImage.addEventListener("load", () => canvasImage.classList.add("ready"));
+  canvasImage.addEventListener("error", () => {
+    canvasImage.classList.remove("ready");
+    setTimeout(() => {
+      canvasImage.src = "/canvas.mjpg?t=" + Date.now();
+    }, 1200);
+  });
+
+  const telemetry = {
+    fps: document.getElementById("fps"),
+    tu: document.getElementById("tu"),
+    encodeMs: document.getElementById("encode-ms"),
+    decodeMs: document.getElementById("decode-ms"),
+    bitrate: document.getElementById("bitrate"),
+    frameIndex: document.getElementById("frame-index"),
+    camFrames: document.getElementById("cam-frames")
+  };
+
+  function formatNumber(value, digits) {
+    return Number(value || 0).toFixed(digits);
+  }
+
+  async function pollStats() {
+    try {
+      const response = await fetch("/stats", { cache: "no-store" });
+      const stats = await response.json();
+      telemetry.fps.innerHTML = formatNumber(stats.fps, 1) + "<small>fps</small>";
+      telemetry.tu.innerHTML = Math.round(stats.tu_bytes / 1024) + "<small>kb/tu</small>";
+      telemetry.encodeMs.innerHTML = formatNumber(stats.encode_ms, 1) + "<small>ms</small>";
+      telemetry.decodeMs.innerHTML =
+        formatNumber(stats.decode_ms + stats.compose_ms, 1) + "<small>ms</small>";
+      telemetry.bitrate.textContent = formatNumber(stats.kbps, 0) + " kb/s";
+      telemetry.frameIndex.textContent = "frame " + stats.frame_index;
+      telemetry.camFrames.textContent = stats.camera_frames + " frames";
+      if (!streaming && stats.camera_connected) {
+        statusLine.textContent = "camera frames received";
+      }
+    } catch (error) {
+      statusLine.textContent = "stats unavailable";
+    }
+  }
+
+  setInterval(pollStats, 800);
+  pollStats();
+
+  window.addEventListener("beforeunload", () => {
+    const stream = video.srcObject;
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+  });
+</script>
+</body>
+</html>

@@ -73,6 +73,13 @@ the number of views. 1280x704 stereo is below realtime with this encoder
 Decoding is not the bottleneck: `avmdec` plus canvas composition runs at ~93
 canvas fps, and playback of the produced MP4 is trivial.
 
+## Live camera variant
+
+The same 2x2 wall, with the user's camera as layer 3, runs as a local web page
+([live camera multiview](2026-10-18-live-camera-multiview-demo.md)): the browser
+posts camera frames, the server encodes/decodes/composes them with the three
+sports clips and streams the canvas back as MJPEG.
+
 ## Notes
 
 - The canvas composition here is the renderer step (background fill plus

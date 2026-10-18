@@ -90,6 +90,11 @@ Two end-to-end demos are available:
   four sports clips in a 2x2 atlas, decoded together and composed into one
   1280x768 canvas with realtime encode measurements;
   `python3 tools/sports_multiview_demo.py`.
+- [live camera multiview](docs/reports/2026-10-18-live-camera-multiview-demo.md):
+  a web page asks for camera access and streams the camera into layer 3 of a
+  2x2 AV2 multistream, decoded and composed back into the page at 15 fps;
+  `./target/release/av2codec_live --port 8090` then open
+  <http://localhost:8090/>.
 
 #### Decoding
 
