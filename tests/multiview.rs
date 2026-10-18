@@ -24,7 +24,7 @@ fn view_frames(seed: u8) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
         .map(|index| (index % 64 + seed as usize) as u8)
         .collect();
     let v: Vec<u8> = (0..(WIDTH / 2 * HEIGHT / 2) as usize)
-        .map(|index| (192usize.wrapping_sub(index / 3) + seed as usize) as u8)
+        .map(|index| (192usize.wrapping_sub(index / 3).wrapping_add(seed as usize)) as u8)
         .collect();
     vec![(y, u, v)]
 }
