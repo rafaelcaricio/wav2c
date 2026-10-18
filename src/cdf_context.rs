@@ -45,6 +45,7 @@ pub struct FrameCdfContext {
     pub txb_skip_v: [Vec<u16>; 6],
     pub txb_skip_v_u_nz: [Vec<u16>; 6],
     pub dc_sign_y: [Vec<u16>; 3],
+    pub dc_sign_y_hidden: [Vec<u16>; 3],
     pub dc_sign_uv: Vec<u16>,
     pub eob_multi_1024: [Vec<u16>; 3],
     pub eob_extra: Vec<u16>,
@@ -182,6 +183,7 @@ impl FrameCdfContext {
                 )
             }),
             dc_sign_y: std::array::from_fn(|i| make_cdf(&DC_SIGN_Y_ICDF[i], 0)),
+            dc_sign_y_hidden: std::array::from_fn(|_| make_cdf(&DC_SIGN_UV_ICDF, 0)),
             dc_sign_uv: make_cdf(&DC_SIGN_UV_ICDF, 0),
             eob_multi_1024: std::array::from_fn(|i| make_cdf(&EOB_MULTI_1024_ICDF[i], 0)),
             eob_extra: make_cdf(&EOB_EXTRA_ICDF, 0),
@@ -535,6 +537,9 @@ impl FrameCdfContext {
             }),
             dc_sign_y: std::array::from_fn(|i| {
                 make_cdf(&DC_SIGN_Y_QCTX_ICDF[q][0][i], DC_SIGN_Y_QCTX_PARA[q][0][i])
+            }),
+            dc_sign_y_hidden: std::array::from_fn(|i| {
+                make_cdf(&DC_SIGN_Y_QCTX_ICDF[q][1][i], DC_SIGN_Y_QCTX_PARA[q][1][i])
             }),
             dc_sign_uv: make_cdf(
                 &DC_SIGN_UV_QCTX_ICDF[q][0][0],

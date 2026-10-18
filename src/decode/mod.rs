@@ -3,6 +3,7 @@ pub mod entropy;
 pub mod frame;
 pub mod obu;
 pub mod predict;
+pub mod qm;
 pub mod sequence;
 pub mod tile;
 pub mod transform;
@@ -162,6 +163,11 @@ impl Decoder {
                         seq.sb_size as usize,
                         seq.enable_ibp,
                         !seq.enable_intra_edge_filter,
+                        if fp.using_qmatrix {
+                            [fp.qm_y[0], fp.qm_u[0], fp.qm_v[0]]
+                        } else {
+                            [qm::NUM_QM_LEVELS as u8 - 1; 3]
+                        },
                         &fp.ccso_params,
                     )
                 }))
@@ -1849,6 +1855,7 @@ fn reconstruct_partitioned_frame(
     sb_size: usize,
     enable_ibp: bool,
     disable_edge_filter: bool,
+    qm_levels: [u8; 3],
     ccso_params: &frame::CcsoParams,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let w = width as usize;
@@ -1982,8 +1989,14 @@ fn reconstruct_partitioned_frame(
                         let residuals = if coded_lossless {
                             lossless_luma_residual(block, tu)
                         } else {
-                            transform::dequantize_and_inverse_tcq(
-                                &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                            transform::dequantize_and_inverse_tcq_qm(
+                                &tu.levels,
+                                tu.eob,
+                                dequant,
+                                tu.tx_size,
+                                tu.tx_type,
+                                tcq_mode,
+                                qm::iqmatrix(qm_levels[0], 0, tu.tx_size),
                             )
                         };
                         reconstruct_tu(
@@ -2018,8 +2031,14 @@ fn reconstruct_partitioned_frame(
                     let residuals = if coded_lossless {
                         lossless_luma_residual(block, tu)
                     } else {
-                        transform::dequantize_and_inverse_tcq(
-                            &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                        transform::dequantize_and_inverse_tcq_qm(
+                            &tu.levels,
+                            tu.eob,
+                            dequant,
+                            tu.tx_size,
+                            tu.tx_type,
+                            tcq_mode,
+                            qm::iqmatrix(qm_levels[0], 0, tu.tx_size),
                         )
                     };
                     reconstruct_tu(
@@ -2044,7 +2063,7 @@ fn reconstruct_partitioned_frame(
                     let tu_h = tu.tx_size.height();
                     let tx = bx + tu.col_offset;
                     let ty = by + tu.row_offset;
-                    let y_pred = predict::predict_intra_with_control_and_availability(
+                    let mut y_pred = predict::predict_intra_with_control_and_availability(
                         &y_plane,
                         w,
                         tx,
@@ -2065,11 +2084,46 @@ fn reconstruct_partitioned_frame(
                         },
                         Some(&y_ready),
                     );
+                    if block.multi_line_mrl != 0
+                        && block.mrl_index != 0
+                        && tu.tx_size != crate::block::TxSize::Tx4x4
+                    {
+                        let line0 = predict::predict_intra_with_control_and_availability(
+                            &y_plane,
+                            w,
+                            tx,
+                            ty,
+                            tu_w,
+                            tu_h,
+                            pred_mode,
+                            angle_delta,
+                            0,
+                            sb_y,
+                            predict::IntraPredictControl {
+                                plane: 0,
+                                enable_ibp: false,
+                                is_cfl: false,
+                                above_filter_type: 0,
+                                left_filter_type: 0,
+                                disable_edge_filter: true,
+                            },
+                            Some(&y_ready),
+                        );
+                        for (dst, other) in y_pred.iter_mut().zip(line0.iter()) {
+                            *dst = ((*dst as u16 + *other as u16 + 1) >> 1) as u8;
+                        }
+                    }
                     let residuals = if coded_lossless {
                         lossless_luma_residual(block, tu)
                     } else {
-                        transform::dequantize_and_inverse_tcq(
-                            &tu.levels, tu.eob, dequant, tu.tx_size, tu.tx_type, tcq_mode,
+                        transform::dequantize_and_inverse_tcq_qm(
+                            &tu.levels,
+                            tu.eob,
+                            dequant,
+                            tu.tx_size,
+                            tu.tx_type,
+                            tcq_mode,
+                            qm::iqmatrix(qm_levels[0], 0, tu.tx_size),
                         )
                     };
                     reconstruct_tu(
@@ -2484,21 +2538,23 @@ fn reconstruct_partitioned_frame(
                         let u_tu = &block.u_tu[0];
                         let v_tu = &block.v_tu[0];
 
-                        let u_dq = transform::dequantize_only(
+                        let u_dq = transform::dequantize_only_qm(
                             &u_tu.levels,
                             u_tu.eob,
                             uv_dequant,
                             u_tu.tx_size,
                             u_tu.tx_type,
                             tcq_mode,
+                            qm::iqmatrix(qm_levels[1], 1, u_tu.tx_size),
                         );
-                        let v_dq = transform::dequantize_only(
+                        let v_dq = transform::dequantize_only_qm(
                             &v_tu.levels,
                             v_tu.eob,
                             uv_dequant,
                             v_tu.tx_size,
                             v_tu.tx_type,
                             tcq_mode,
+                            qm::iqmatrix(qm_levels[2], 2, v_tu.tx_size),
                         );
 
                         let mut u_dq_arr = [0i32; 256];
@@ -2609,21 +2665,23 @@ fn reconstruct_partitioned_frame(
                         let u_tu = &block.u_tu[i];
                         let v_tu = &block.v_tu[i];
 
-                        let mut u_dq = transform::dequantize_only(
+                        let mut u_dq = transform::dequantize_only_qm(
                             &u_tu.levels,
                             u_tu.eob,
                             uv_dequant,
                             u_tu.tx_size,
                             u_tu.tx_type,
                             tcq_mode,
+                            qm::iqmatrix(qm_levels[1], 1, u_tu.tx_size),
                         );
-                        let mut v_dq = transform::dequantize_only(
+                        let mut v_dq = transform::dequantize_only_qm(
                             &v_tu.levels,
                             v_tu.eob,
                             uv_dequant,
                             v_tu.tx_size,
                             v_tu.tx_type,
                             tcq_mode,
+                            qm::iqmatrix(qm_levels[2], 2, v_tu.tx_size),
                         );
 
                         if u_tu.cctx_type != 0 {
@@ -2859,21 +2917,23 @@ fn reconstruct_partitioned_frame(
                     let u_tu = &block.u_tu[i];
                     let v_tu = &block.v_tu[i];
 
-                    let mut u_dq = transform::dequantize_only(
+                    let mut u_dq = transform::dequantize_only_qm(
                         &u_tu.levels,
                         u_tu.eob,
                         uv_dequant,
                         u_tu.tx_size,
                         u_tu.tx_type,
                         tcq_mode,
+                        qm::iqmatrix(qm_levels[1], 1, u_tu.tx_size),
                     );
-                    let mut v_dq = transform::dequantize_only(
+                    let mut v_dq = transform::dequantize_only_qm(
                         &v_tu.levels,
                         v_tu.eob,
                         uv_dequant,
                         v_tu.tx_size,
                         v_tu.tx_type,
                         tcq_mode,
+                        qm::iqmatrix(qm_levels[2], 2, v_tu.tx_size),
                     );
 
                     if u_tu.cctx_type != 0 {
@@ -3621,6 +3681,7 @@ mod tests {
             seq.sb_size as usize,
             seq.enable_ibp,
             !seq.enable_intra_edge_filter,
+            [qm::NUM_QM_LEVELS as u8 - 1; 3],
             &fp.ccso_params,
         );
 
@@ -3876,6 +3937,7 @@ mod tests {
             seq.sb_size as usize,
             seq.enable_ibp,
             !seq.enable_intra_edge_filter,
+            [qm::NUM_QM_LEVELS as u8 - 1; 3],
             &fp.ccso_params,
         );
 

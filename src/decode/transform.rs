@@ -163,6 +163,18 @@ pub fn dequantize_and_inverse_tcq(
     tx_type: usize,
     tcq_enabled: bool,
 ) -> Vec<i32> {
+    dequantize_and_inverse_tcq_qm(levels, eob, dequant, tx_size, tx_type, tcq_enabled, None)
+}
+
+pub fn dequantize_and_inverse_tcq_qm(
+    levels: &[i32],
+    eob: u16,
+    dequant: i32,
+    tx_size: TxSize,
+    tx_type: usize,
+    tcq_enabled: bool,
+    qm: Option<&[u8]>,
+) -> Vec<i32> {
     let pixel_count = tx_size.width() * tx_size.height();
 
     if eob == 0 {
@@ -182,13 +194,19 @@ pub fn dequantize_and_inverse_tcq(
         for c in (0..(eob as usize)).rev() {
             let coeff_idx = scan[c] as usize;
             let qx = tcq_quant(state);
-            dqcoeffs[coeff_idx] = dequantize_coeff_tcq(levels[c], log_scale, dequant, qx);
+            let dqv = qm.map_or(dequant, |m| {
+                ((m[coeff_idx] as i32 * dequant + 16) >> 5)
+            });
+            dqcoeffs[coeff_idx] = dequantize_coeff_tcq(levels[c], log_scale, dqv, qx);
             state = tcq_next(state, levels[c]);
         }
     } else {
         for scan_idx in 0..(eob as usize) {
             let coeff_idx = scan[scan_idx] as usize;
-            dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], log_scale, dequant);
+            let dqv = qm.map_or(dequant, |m| {
+                ((m[coeff_idx] as i32 * dequant + 16) >> 5)
+            });
+            dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], log_scale, dqv);
         }
     }
 
@@ -264,6 +282,18 @@ pub fn dequantize_only(
     tx_type: usize,
     tcq_enabled: bool,
 ) -> Vec<i32> {
+    dequantize_only_qm(levels, eob, dequant, tx_size, tx_type, tcq_enabled, None)
+}
+
+pub fn dequantize_only_qm(
+    levels: &[i32],
+    eob: u16,
+    dequant: i32,
+    tx_size: TxSize,
+    tx_type: usize,
+    tcq_enabled: bool,
+    qm: Option<&[u8]>,
+) -> Vec<i32> {
     let num_coeffs = tx_size.num_coeffs();
     if eob == 0 {
         return vec![0i32; num_coeffs];
@@ -280,13 +310,19 @@ pub fn dequantize_only(
         for c in (0..(eob as usize)).rev() {
             let coeff_idx = scan[c] as usize;
             let qx = tcq_quant(state);
-            dqcoeffs[coeff_idx] = dequantize_coeff_tcq(levels[c], log_scale, dequant, qx);
+            let dqv = qm.map_or(dequant, |m| {
+                ((m[coeff_idx] as i32 * dequant + 16) >> 5)
+            });
+            dqcoeffs[coeff_idx] = dequantize_coeff_tcq(levels[c], log_scale, dqv, qx);
             state = tcq_next(state, levels[c]);
         }
     } else {
         for scan_idx in 0..(eob as usize) {
             let coeff_idx = scan[scan_idx] as usize;
-            dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], log_scale, dequant);
+            let dqv = qm.map_or(dequant, |m| {
+                ((m[coeff_idx] as i32 * dequant + 16) >> 5)
+            });
+            dqcoeffs[coeff_idx] = dequantize_coeff(levels[scan_idx], log_scale, dqv);
         }
     }
     dqcoeffs

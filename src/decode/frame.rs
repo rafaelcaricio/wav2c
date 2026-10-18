@@ -67,6 +67,11 @@ pub struct FrameParams<'a> {
     pub allow_parity_hiding: bool,
     pub u_ac_delta_q: i32,
     pub v_ac_delta_q: i32,
+    pub using_qmatrix: bool,
+    pub pic_qm_num: u8,
+    pub qm_y: [u8; 4],
+    pub qm_u: [u8; 4],
+    pub qm_v: [u8; 4],
 }
 
 pub const CCSO_BAND_NUM: usize = 64;
@@ -102,6 +107,51 @@ impl Default for CcsoPlaneParams {
 pub struct CcsoParams {
     pub frame_enabled: bool,
     pub planes: [CcsoPlaneParams; 3],
+}
+
+struct QmParams {
+    using_qmatrix: bool,
+    pic_qm_num: u8,
+    qm_y: [u8; 4],
+    qm_u: [u8; 4],
+    qm_v: [u8; 4],
+}
+
+fn parse_qm_params(r: &mut BitReader, seg_enabled: bool, seq: &SequenceParams) -> QmParams {
+    let using_qmatrix = r.read_bit();
+    let mut params = QmParams {
+        using_qmatrix,
+        pic_qm_num: 1,
+        qm_y: [0; 4],
+        qm_u: [0; 4],
+        qm_v: [0; 4],
+    };
+    if !using_qmatrix {
+        return params;
+    }
+    params.pic_qm_num = if seg_enabled {
+        r.read_literal(2) as u8 + 1
+    } else {
+        1
+    };
+    for i in 0..params.pic_qm_num as usize {
+        let qm_y = r.read_literal(4) as u8;
+        params.qm_y[i] = qm_y;
+        let uv_same_as_y = r.read_bit();
+        if uv_same_as_y {
+            params.qm_u[i] = qm_y;
+            params.qm_v[i] = qm_y;
+        } else {
+            let qm_u = r.read_literal(4) as u8;
+            params.qm_u[i] = qm_u;
+            params.qm_v[i] = if seq.separate_uv_delta_q {
+                r.read_literal(4) as u8
+            } else {
+                qm_u
+            };
+        }
+    }
+    params
 }
 
 pub fn parse_frame_header<'a>(
@@ -395,8 +445,8 @@ fn parse_frame_header_sph0<'a>(
     let qparams = parse_quantization(&mut r, seq);
     let base_qindex = qparams.base_qindex;
 
-    let _seg_enabled = r.read_bit();
-    let _using_qmatrix = r.read_bit();
+    let seg_enabled = r.read_bit();
+    let qm = parse_qm_params(&mut r, seg_enabled, seq);
 
     let mut delta_q_present = false;
     let mut delta_q_res = 0u32;
@@ -510,6 +560,11 @@ fn parse_frame_header_sph0<'a>(
         allow_parity_hiding,
         u_ac_delta_q: qparams.u_ac_delta_q,
         v_ac_delta_q: qparams.v_ac_delta_q,
+        using_qmatrix: qm.using_qmatrix,
+        pic_qm_num: qm.pic_qm_num,
+        qm_y: qm.qm_y,
+        qm_u: qm.qm_u,
+        qm_v: qm.qm_v,
     })
 }
 
@@ -557,8 +612,8 @@ fn parse_frame_header_sph1<'a>(
     let qparams = parse_quantization(&mut r, seq);
     let base_qindex = qparams.base_qindex;
 
-    let _seg_enabled = r.read_bit();
-    let _using_qmatrix = r.read_bit();
+    let seg_enabled = r.read_bit();
+    let qm = parse_qm_params(&mut r, seg_enabled, seq);
 
     let mut delta_q_present = false;
     let mut delta_q_res = 0u32;
@@ -662,6 +717,11 @@ fn parse_frame_header_sph1<'a>(
         allow_parity_hiding,
         u_ac_delta_q: qparams.u_ac_delta_q,
         v_ac_delta_q: qparams.v_ac_delta_q,
+        using_qmatrix: qm.using_qmatrix,
+        pic_qm_num: qm.pic_qm_num,
+        qm_y: qm.qm_y,
+        qm_u: qm.qm_u,
+        qm_v: qm.qm_v,
     })
 }
 

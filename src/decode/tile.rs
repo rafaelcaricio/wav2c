@@ -923,6 +923,7 @@ pub struct DecodedBlock {
     pub use_dpcm_uv: bool,
     pub uv_mode: u8,
     pub mrl_index: u8,
+    pub multi_line_mrl: u8,
     pub cfl_alpha_u: i8,
     pub cfl_alpha_v: i8,
     pub cfl_idx: u8,
@@ -1799,7 +1800,7 @@ fn decode_coeff_tu(
         let sign = if is_dc {
             if plane == 0 {
                 if is_hidden {
-                    ec.decode_symbol(&DC_SIGN_UV_ICDF)
+                    ec.decode_symbol_mut(&mut cdf.dc_sign_y_hidden[dc_sign_ctx])
                 } else {
                     let ctx = if c == 0 { dc_sign_ctx } else { 0 };
                     ec.decode_symbol_mut(&mut cdf.dc_sign_y[ctx])
@@ -1822,7 +1823,15 @@ fn decode_coeff_tu(
             MAX_BASE_BR_RANGE
         };
 
-        let final_level = if abs_level >= max_br {
+        let final_level = if is_hidden && c == 0 {
+            if abs_level >= (NUM_BASE_LEVELS + 1) << 1 {
+                let hr = decode_adaptive_hr(ec, hr_avg >> 1) << 1;
+                hr_avg = (hr_avg + hr) >> 1;
+                abs_level + hr
+            } else {
+                abs_level
+            }
+        } else if abs_level >= max_br {
             let hr = decode_adaptive_hr(ec, hr_avg);
             hr_avg = (hr_avg + hr) >> 1;
             abs_level + hr
@@ -3338,6 +3347,7 @@ fn decode_leaf_block(
             use_dpcm_uv: false,
             uv_mode: 0,
             mrl_index: 0,
+            multi_line_mrl: 0,
             cfl_alpha_u: 0,
             cfl_alpha_v: 0,
             cfl_idx: 0,
@@ -3519,6 +3529,7 @@ fn decode_leaf_block(
         use_dpcm_uv,
         uv_mode,
         mrl_index,
+        multi_line_mrl,
         cfl_alpha_u,
         cfl_alpha_v,
         cfl_idx,
