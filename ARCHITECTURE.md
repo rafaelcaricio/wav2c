@@ -150,9 +150,12 @@ belongs to the player regardless of decoder.
 
 ### Slides (`demos/slides/`)
 
-Static three-slide deck (keyboard navigation) plus a QR code pointing at the
-hosted WASM demo; `demos/serve_tls.sh` serves the demo over HTTPS so remote
-devices can use their camera.
+Static three-slide deck (keyboard navigation) with an inline SVG QR code
+pointing at the hosted WASM demo. The layout targets a 16:9 projector; the
+checked-in `av2codec-multiview-slides.pdf` is produced by `print_pdf.mjs`,
+which drives Chrome over CDP to fix the 1280x720 layout viewport and prints one
+13.333in x 7.5in page per slide. `demos/serve_tls.sh` serves the WASM demo over
+HTTPS so remote devices can use their camera.
 
 ## Conformance and testing
 
