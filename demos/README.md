@@ -86,17 +86,27 @@ per-view PSNR. See
 ## Slides
 
 `demos/slides/index.html` is a three-slide deck (arrow keys/space) whose last
-slide carries the QR code for the hosted demo. Serve the directory, e.g.:
+slide carries the QR code for the hosted demo. It is a single self-contained
+file: the QR code is inline SVG, so the deck works from a `file://` URL or any
+static server with no other assets:
 
 ```sh
 python3 -m http.server 8081 --directory demos/slides
 ```
 
 The hosted copy lives at <https://static.caric.io/vdd26/av2demo>; the QR code on
-slide 3 points there. To publish, upload `demos/wasm-multiview/index.html` and
-`demos/wasm-multiview/av2codec.wasm` next to each other (the page fetches the
-module with a relative path) and serve them over HTTPS so the camera works.
-Update the URL in `index.html` and regenerate `qr.png` when hosting elsewhere.
+slide 3 points there. To publish the demo, upload
+`demos/wasm-multiview/index.html` and `demos/wasm-multiview/av2codec.wasm` next
+to each other (the page fetches the module with a relative path) over HTTPS so
+the camera works.
+
+To point the slides at another URL, regenerate the inline QR (and the optional
+standalone `qr.png`):
+
+```sh
+uv run --with qrcode --with pillow python demos/slides/make_qr.py \
+  --url https://example.com/av2demo
+```
 
 ## Notes
 

@@ -53,7 +53,9 @@ replaces that call (and composition stays in JS either way).
 ## Slides
 
 `demos/slides/index.html`, three slides, arrow keys/space to navigate, QR code on
-the last slide pointing at <https://static.caric.io/vdd26/av2demo>. The hosted
+the last slide pointing at <https://static.caric.io/vdd26/av2demo>. The deck is
+self-contained: the QR code is inline SVG, so no companion image is needed; use
+`demos/slides/make_qr.py` to regenerate it for another URL. The hosted
 URL is HTTPS, so remote devices can use their camera; serving the files locally
 also works on `http://localhost`, while plain HTTP on a LAN address blocks
 `getUserMedia`.
