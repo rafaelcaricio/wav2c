@@ -67,7 +67,9 @@ av2codec <input.y4m> [<view.y4m> ...] <output.obu> [options]
 | `output.obu` | Output AV2 bitstream (OBU format) |
 | `--qindex N` | Base quantizer index, 0-255 (default: 50) |
 | `--multiview` | Encode every input as an extended layer of one multistream bitstream |
-| `--layout row\|column` | Atlas grid direction for multiview (default: `row`) |
+| `--layout row\|column\|grid` | Atlas grid for multiview (default: `row`) |
+| `--columns N` | Grid columns for `--layout grid` (default: 2) |
+| `--threads N` | Per-view encoder threads (0 = one per view) |
 | `--purpose stereo\|multiview` | Global LCR purpose id (default by view count) |
 | `--extract-layer N` | Write only extended layer `N` of the encoded multistream |
 
@@ -79,10 +81,15 @@ avmdec --codec=av2 --num-streams=2 -o views.y4m stereo.obu
 av2codec left.y4m right.y4m left.obu --multiview --extract-layer 0
 ```
 
-A full end-to-end demo (stereo pair and three-view conference layout, encode,
-per-view decode with `avmdec`, PSNR and atlas snapshots) is in
-[the multiview demo report](docs/reports/2026-10-18-multiview-encoder-demo.md);
-run it with `python3 tools/multiview_demo.py --sweep`.
+Two end-to-end demos are available:
+
+- [multiview demo](docs/reports/2026-10-18-multiview-encoder-demo.md): stereo
+  pair and three-view conference layout, per-view PSNR and atlas snapshots;
+  `python3 tools/multiview_demo.py --sweep`.
+- [sports multiview wall](docs/reports/2026-10-18-sports-multiview-demo.md):
+  four sports clips in a 2x2 atlas, decoded together and composed into one
+  1280x768 canvas with realtime encode measurements;
+  `python3 tools/sports_multiview_demo.py`.
 
 #### Decoding
 
@@ -221,7 +228,8 @@ with a global LCR, per-layer local LCRs and an atlas segment OBU (see the
 - Intra prediction: DC, Smooth, Smooth_V, Smooth_H, Paeth (best mode selected per superblock)
 - Full DC + AC coefficient coding with forward/inverse DCT
 - Multi-frame video encoding (each frame as a CLK OBU)
-- Multiview encoding: 2-4 extended layers in one bitstream, with a global layer configuration record, per-layer local records (`lcr_view_type`, `lcr_layer_type`, atlas segment mapping), an enhanced atlas (row/column grid, mixed resolutions) and a multi-stream decoder operation OBU
+- Multiview encoding: 2-4 extended layers in one bitstream, with a global layer configuration record, per-layer local records (`lcr_view_type`, `lcr_layer_type`, atlas segment mapping), an enhanced atlas (row, column or 2D grid, mixed resolutions) and a multi-stream decoder operation OBU
+- Multithreaded per-view encoding (~35 multiview fps for a 2x2 wall of 640x384 views on a 12-core machine)
 - Per-layer sub-bitstream extraction (`extract_layer`) for singlestream playback
 - **Pure Rust decoder** — decodes any AV2-compliant bitstream, not just av2codec-produced ones
 - Spec-compliant sequence header parsing (both `single_picture_header_flag=0` and `=1`)

@@ -2,3 +2,4 @@
 .worktrees
 /scripts
 /.claude
+__pycache__/
