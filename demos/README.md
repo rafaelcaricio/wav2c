@@ -87,7 +87,8 @@ per-view PSNR. See
 
 `demos/slides/index.html` is a four-slide deck (arrow keys/space): the idea,
 the in-browser pipeline, a try-it slide with the QR code for the hosted demo,
-and what the work cost in DeepSeek API usage. It is a single self-contained
+and a closing slide with the DeepSeek API cost and a QR code for the source
+branch. It is a single self-contained
 file: the QR code is inline SVG, so the deck works from a `file://` URL or any
 static server with no other assets:
 
@@ -111,12 +112,13 @@ slide 3 points there. To publish the demo, upload
 to each other (the page fetches the module with a relative path) over HTTPS so
 the camera works.
 
-To point the slides at another URL, regenerate the inline QR (and the optional
-standalone `qr.png`):
+To point the slides at other URLs, regenerate both inline QR codes (and the
+optional standalone `qr.png` / `qr-source.png`):
 
 ```sh
 uv run --with qrcode --with pillow python demos/slides/make_qr.py \
-  --url https://example.com/av2demo
+  --demo-url https://example.com/av2demo \
+  --source-url https://github.com/you/repo/tree/branch
 ```
 
 ## Notes

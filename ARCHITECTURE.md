@@ -150,9 +150,9 @@ belongs to the player regardless of decoder.
 
 ### Slides (`demos/slides/`)
 
-Static four-slide deck (keyboard navigation) with an inline SVG QR code
-pointing at the hosted WASM demo and a closing slide with the API cost of the
-project. The layout targets a 16:9 projector; the
+Static four-slide deck (keyboard navigation) with inline SVG QR codes pointing
+at the hosted WASM demo and at the source branch, plus a closing slide with the
+API cost of the project. The layout targets a 16:9 projector; the
 checked-in `av2codec-multiview-slides.pdf` is produced by `print_pdf.mjs`,
 which drives Chrome over CDP to fix the 1280x720 layout viewport and prints one
 13.333in x 7.5in page per slide. `demos/serve_tls.sh` serves the WASM demo over

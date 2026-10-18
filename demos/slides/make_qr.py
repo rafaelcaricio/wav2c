@@ -5,9 +5,11 @@ The slide deck must stay self-contained, so the QR code is inlined as SVG
 between the marker comments in index.html. This script rewrites that block and
 also writes qr.png for standalone use.
 
+The deck carries two codes: the demo URL on the try-it slide and the source
+repository URL on the cost slide.
+
 Usage:
-    uv run --with qrcode --with pillow python demos/slides/make_qr.py \
-        --url https://static.caric.io/vdd26/av2demo
+    uv run --with qrcode --with pillow python demos/slides/make_qr.py
 """
 
 import argparse
@@ -55,22 +57,31 @@ def png_for(url, target, box_size=12, border=2):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True)
+    parser.add_argument("--demo-url", default="https://static.caric.io/vdd26/av2demo")
+    parser.add_argument(
+        "--source-url",
+        default="https://github.com/rafaelcaricio/wav2c/tree/av2-v1.0.0-conformance",
+    )
     parser.add_argument("--page", default=str(Path(__file__).with_name("index.html")))
     parser.add_argument("--png", default=str(Path(__file__).with_name("qr.png")))
+    parser.add_argument(
+        "--source-png", default=str(Path(__file__).with_name("qr-source.png"))
+    )
     arguments = parser.parse_args()
 
     page = Path(arguments.page)
     html = page.read_text()
-    block = "<!-- QR:START -->\n" + svg_for(arguments.url) + "\n<!-- QR:END -->"
-    updated, count = re.subn(
-        r"<!-- QR:START -->.*?<!-- QR:END -->", block, html, flags=re.S
-    )
-    if count != 1:
-        raise SystemExit(f"expected one QR block in {page}, found {count}")
-    page.write_text(updated)
-    png_for(arguments.url, Path(arguments.png))
-    print(f"updated {page} and {arguments.png} for {arguments.url}")
+    for kind, url in (("DEMO", arguments.demo_url), ("SOURCE", arguments.source_url)):
+        block = f"<!-- QR:{kind}:START -->\n{svg_for(url)}\n<!-- QR:{kind}:END -->"
+        html, count = re.subn(
+            rf"<!-- QR:{kind}:START -->.*?<!-- QR:{kind}:END -->", block, html, flags=re.S
+        )
+        if count != 1:
+            raise SystemExit(f"expected one QR:{kind} block in {page}, found {count}")
+    page.write_text(html)
+    png_for(arguments.demo_url, Path(arguments.png))
+    png_for(arguments.source_url, Path(arguments.source_png))
+    print(f"updated {page}, {arguments.png} and {arguments.source_png}")
 
 
 if __name__ == "__main__":
