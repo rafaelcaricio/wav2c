@@ -73,6 +73,18 @@
   footer { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px clamp(16px, 3vw, 40px) 24px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
   footer a { color: var(--accent); text-decoration: none; }
   .hidden { display: none; }
+  .warning {
+    margin: 0 clamp(16px, 3vw, 40px) 0;
+    padding: 14px 18px;
+    border: 1px solid rgba(255, 176, 46, .5);
+    background: rgba(255, 176, 46, .08);
+    color: #ffd9a0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    letter-spacing: .02em;
+  }
+  .warning code { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -83,6 +95,13 @@
     </div>
     <div class="badge"><span class="dot"></span> <span id="status-badge">encoder booting</span></div>
   </header>
+
+  <div id="secure-warning" class="warning hidden">
+    Camera access is blocked on this origin: browsers only expose <code>getUserMedia</code> on
+    <strong>localhost</strong> or <strong>HTTPS</strong>. Serve this page with TLS
+    (<code>tools/serve_demo_tls.sh</code>) or open it through a localhost port forward.
+    The AV2 loop below still runs with a placeholder layer.
+  </div>
 
   <main>
     <section class="panel">
@@ -469,6 +488,14 @@ async function startCamera() {
 }
 
 enableButton.addEventListener("click", startCamera);
+const secureContext = window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+if (!secureContext) {
+  document.getElementById("secure-warning").classList.remove("hidden");
+  cameraState.textContent = "blocked";
+  cameraState.className = "tag amber";
+  cameraNote.textContent = "This origin is not a secure context, so the camera cannot be used. Serve the page over HTTPS or use localhost.";
+  enableButton.disabled = true;
+}
 const autostart = new URLSearchParams(location.search).has("autostart");
 loadWasm()
   .then(() => (autostart ? startCamera() : Promise.resolve()))

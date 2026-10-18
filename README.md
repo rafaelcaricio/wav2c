@@ -93,8 +93,8 @@ Two end-to-end demos are available:
 - [in-browser WASM demo](docs/reports/2026-10-18-wasm-multiview-demo.md) and
   [three slides](web/slides/index.html): the encoder and decoder compiled to
   wasm32 run in the page, with a QR code on the last slide;
-  `tools/build_wasm_demo.sh` then open `web/multiview_wasm/index.html` over a
-  local server.
+  `tools/build_wasm_demo.sh` then `tools/serve_demo_tls.sh` and open
+  `https://<lan-ip>:9090/` (camera capture needs HTTPS or localhost).
 - [live camera multiview](docs/reports/2026-10-18-live-camera-multiview-demo.md):
   a web page asks for camera access and streams the camera into layer 3 of a
   2x2 AV2 multistream, decoded and composed back into the page at 15 fps;

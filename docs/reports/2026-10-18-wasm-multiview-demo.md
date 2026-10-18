@@ -53,3 +53,30 @@ replaces that call (and composition stays in JS either way).
 the last slide pointing at the hosted page. Camera access needs a secure origin:
 `localhost` works; over the tailnet IP the page runs but the browser blocks
 `getUserMedia` until the origin is HTTPS (port-forward or TLS proxy).
+
+## Camera on a LAN (HTTP) origin
+
+Browsers only expose `getUserMedia` in a **secure context**: `https://` or
+`http://localhost`. Serving the page over plain HTTP on a LAN address such as
+`http://192.168.1.94:9090` leaves the encoder loop working (placeholder camera
+layer) but blocks camera access; the page now detects this, shows a warning and
+disables the camera button instead of failing silently.
+
+The `Error with Permissions-Policy header: Unrecognized feature: …` messages in
+the console are unrelated Chrome noise about feature names in the server's
+headers; they do not affect camera access.
+
+Fix it by serving the demo over TLS:
+
+```sh
+tools/serve_demo_tls.sh            # PORT=9090 by default
+# then open https://192.168.1.94:9090/ and accept the self-signed certificate
+```
+
+The script creates a self-signed certificate whose SANs cover `localhost`, every
+local IPv4 address and the machine's other addresses, and serves
+`web/multiview_wasm`. After accepting the certificate warning the origin is
+secure and the camera works. Alternatives: forward the port over SSH so the
+origin is `http://localhost:9090`, or start Chrome with
+`--unsafely-treat-insecure-origin-as-secure=http://192.168.1.94:9090` (desktop
+testing only).
